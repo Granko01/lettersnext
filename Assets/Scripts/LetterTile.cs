@@ -3,8 +3,9 @@ using UnityEngine.UI;
 
 public class LetterTile : MonoBehaviour
 {
-    public char letter;
+    public string letter = "";
     public Text textDisplay;
+    public Text valueDisplay;
 
     private Image background;
     private Color originalColor;

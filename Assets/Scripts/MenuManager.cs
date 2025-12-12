@@ -228,6 +228,15 @@ public class MenuManager : MonoBehaviour
             case "Howto": Panels[3].SetActive(true); break;
             case "Close": Panels[4].SetActive(true); break;
             case "Shop": Panels[5].SetActive(true); break;
+           
         }
+         if (tag == "Home")
+            {
+                for (int i = 0; i < Panels.Length; i++)
+                {
+                    Panels[i].gameObject.SetActive(false);
+                }
+                Panels[7].gameObject.SetActive(true);
+            }
     }
 }

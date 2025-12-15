@@ -16,7 +16,6 @@ public class WordAnimator : MonoBehaviour
 
   private IEnumerator AnimateWord(string word)
 {
-    // Disable Layout Group if any
     var layout = letterContainer.GetComponent<HorizontalOrVerticalLayoutGroup>();
     if (layout != null) layout.enabled = false;
 
@@ -24,12 +23,11 @@ public class WordAnimator : MonoBehaviour
     foreach (Transform child in letterContainer)
         Destroy(child.gameObject);
 
-    // Calculate horizontal spacing
     float spacing = 0f;
     if (letterContainer.childCount > 0)
-        spacing = 30f; // optional spacing between letters
+        spacing = 60f; 
     else
-        spacing = 40f; // default spacing
+        spacing = 80f;
 
     float startX = -((word.Length - 1) * spacing) / 2f; // center word in container
 

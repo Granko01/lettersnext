@@ -76,11 +76,13 @@ public class WordConnector : MonoBehaviour
     public void StartLevel(int levelID)
     {
         currentLevelId = levelID;
+        CantChoose.gameObject.SetActive(false);
+        NextLevelButton.gameObject.SetActive(false);
         LevelGm.gameObject.SetActive(true);
         ClearLevelData();
         LoadLevelLetters();
         SpawnLetters();
-        levelLogic.StartTimer();
+        levelLogic.StartTimer(); 
     }
     void LoadLevelLetters()
     {

@@ -1,22 +1,29 @@
 using System.Collections.Generic;
-using System.Linq;
 using UnityEngine;
 using UnityEngine.UI;
 using PlayFab;
 using PlayFab.ClientModels;
 
+[System.Serializable]
+public class LevelStars
+{
+    public Button[] stars; // 3 stars per level
+}
+
 public class BonusManager : MonoBehaviour
 {
     public int BonusInt;
     public Text[] bonusText;
-    public Image[] levelCircles;
+    public LevelStars[] levelCircles;
     public MenuManager menuManager;
     public PlayFabLogin playFabLogin;
 
+    private Dictionary<int, int> levelBonuses = new Dictionary<int, int>();
+
     void Start()
     {
-        menuManager = FindObjectOfType<MenuManager>();
-        playFabLogin = FindObjectOfType<PlayFabLogin>();
+        menuManager = FindAnyObjectByType<MenuManager>();
+        playFabLogin = FindAnyObjectByType<PlayFabLogin>();
     }
 
     public void LoadBonusFromPlayFab()
@@ -27,71 +34,61 @@ public class BonusManager : MonoBehaviour
             OnUserDataError
         );
     }
+
     public int GetBonusForLevel(int level)
-{
-    if (levelBonuses == null) return 0;
-    if (levelBonuses.TryGetValue(level, out int previousBonus))
-        return previousBonus;
-    return 0;
-}
-
-private Dictionary<int, int> levelBonuses = new Dictionary<int, int>();
-
-   private void OnStatisticsReceived(GetPlayerStatisticsResult result)
-{
-    levelBonuses.Clear(); // clear previous data
-
-    if (result.Statistics == null || result.Statistics.Count == 0)
     {
-        BonusInt = 0;
-        return;
+        if (levelBonuses == null) return 0;
+        if (levelBonuses.TryGetValue(level, out int previousBonus))
+            return previousBonus;
+        return 0;
     }
 
-    foreach (var stat in result.Statistics)
+    private void OnStatisticsReceived(GetPlayerStatisticsResult result)
     {
-        if (stat.StatisticName.StartsWith("Bonus_Level_"))
+        levelBonuses.Clear();
+
+        if (result.Statistics == null || result.Statistics.Count == 0)
         {
-            string[] parts = stat.StatisticName.Split('_');
-            if (parts.Length >= 3 && int.TryParse(parts[2], out int levelNumber))
-                levelBonuses[levelNumber] = stat.Value; // assign to class-level
+            BonusInt = 0;
+            return;
+        }
+
+        foreach (var stat in result.Statistics)
+        {
+            if (stat.StatisticName.StartsWith("Bonus_Level_"))
+            {
+                string[] parts = stat.StatisticName.Split('_');
+                if (parts.Length >= 3 && int.TryParse(parts[2], out int levelNumber))
+                {
+                    levelBonuses[levelNumber] = stat.Value;
+
+                    if (levelNumber - 1 < bonusText.Length)
+                        bonusText[levelNumber - 1].text = $"Bonus: +{stat.Value}";
+
+                    string statName = $"Bonus_Level_{levelNumber}";
+
+                    FetchLeaderboardRank(statName, levelNumber);
+                }
+            }
         }
     }
-
-    var orderedLevels = new List<int>(levelBonuses.Keys);
-    orderedLevels.Sort();
-
-    for (int i = 0; i < orderedLevels.Count && i < bonusText.Length; i++)
-    {
-        int level = orderedLevels[i];
-        int bonusValue = levelBonuses[level];
-        bonusText[i].text = $"Bonus: +{bonusValue}";
-
-        string statName = $"Bonus_Level_{level}";
-        FetchLeaderboardRank(statName, i);
-    }
-}
-
-    
 
     private void FetchLeaderboardRank(string statName, int levelIndex)
     {
         var request = new GetLeaderboardAroundPlayerRequest
         {
             StatisticName = statName,
-            MaxResultsCount = 10
+            MaxResultsCount = 1
         };
 
         PlayFabClientAPI.GetLeaderboardAroundPlayer(request, result =>
         {
-            foreach (var entry in result.Leaderboard)
+            if (result.Leaderboard != null && result.Leaderboard.Count > 0)
             {
+                int rank = result.Leaderboard[0].Position + 1;
 
-                if (entry.PlayFabId == playFabLogin.playFabId)
-                {
-                    int rank = entry.Position + 1;
-                    HighlightLevelUI(levelIndex, rank);
-                    return;
-                }
+                HighlightLevelUI(levelIndex, rank);
+                return;
             }
 
             HighlightLevelUI(levelIndex, 999);
@@ -102,40 +99,45 @@ private Dictionary<int, int> levelBonuses = new Dictionary<int, int>();
         });
     }
 
-
-
     private void HighlightLevelUI(int levelIndex, int rank)
     {
-        if (levelCircles == null || levelIndex >= levelCircles.Length)
+        int index = levelIndex - 1;
+
+        if (levelCircles == null || index < 0 || index >= levelCircles.Length)
         {
             Debug.LogWarning($"⚠️ levelIndex {levelIndex} out of range or no levelCircles assigned.");
             return;
         }
 
-        Image highlightCircle = levelCircles[levelIndex];
+        Button[] stars = levelCircles[index].stars;
 
-        if (highlightCircle == null)
+        if (stars == null || stars.Length == 0)
         {
-            Debug.LogWarning($"⚠️ No Image assigned at index {levelIndex}");
+            Debug.LogWarning($"⚠️ No stars assigned at index {index}");
             return;
         }
 
+        foreach (var star in stars)
+        {
+            star.interactable = false;
+        }
+
+        int starsToEnable = 0;
+        if (rank == 1 || rank == 3) starsToEnable = 3;
+        else if (rank == 2) starsToEnable = 2;
+        else starsToEnable = 0;
+
+        Color starColor = Color.gray;
         switch (rank)
         {
-            case 1:
-                highlightCircle.color = Color.green;
-                break;
-            case 2:
-                highlightCircle.color = new Color(1f, 0.64f, 0f); // orange
-                break;
-            case 3:
-                highlightCircle.color = Color.yellow; // optional
-                break;
-            default:
-                highlightCircle.color = Color.white;
-                break;
         }
-        Debug.Log($"🎨 Level {levelIndex + 1} → Rank {rank} → Color applied to {highlightCircle.name}");
+
+        for (int i = 0; i < starsToEnable && i < stars.Length; i++)
+        {
+            stars[i].interactable = true;
+        }
+
+        Debug.Log($"🎨 Level {levelIndex} → Rank {rank} → {starsToEnable} stars");
     }
 
     private void OnUserDataError(PlayFabError error)

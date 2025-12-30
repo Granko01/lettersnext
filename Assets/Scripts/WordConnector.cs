@@ -2,10 +2,8 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
-using UnityEditor;
 using UnityEngine;
 using UnityEngine.UI;
-
 
 [System.Serializable]
 public class LevelData
@@ -13,6 +11,7 @@ public class LevelData
     public int levelId;
     public string letters;
 }
+
 public class WordConnector : MonoBehaviour
 {
     [Header("Letter Setup")]
@@ -32,25 +31,26 @@ public class WordConnector : MonoBehaviour
     [Header("Found Words UI")]
     public Transform foundWordsContent;
     public GameObject foundWordPrefab;
+    public GameObject foundWordPrefabLetter;
 
     [Header("Score")]
     public Text scoreText;
     private int totalScore = 0;
+    public Text Bonus;
     public GameObject NextLevelButton;
     public GameObject CantChoose;
 
     private List<RectTransform> selectedLetters = new List<RectTransform>();
     private List<GameObject> lineSegments = new List<GameObject>();
+    private List<GameObject> currentDragLetters = new List<GameObject>();
     private string currentWord = "";
 
     public List<LevelData> allLevels = new List<LevelData>();
     public int currentLevelId = 1;
-
     public GameObject LevelGm;
 
     public LevelLogic levelLogic;
     public WordAnimator wordAnimator;
-
     public MenuManager menuManager;
     public BonusManager bonusManager;
 
@@ -73,17 +73,19 @@ public class WordConnector : MonoBehaviour
         LoadValidWords();
         UpdateScoreUI();
     }
+
     public void StartLevel(int levelID)
     {
         currentLevelId = levelID;
-        CantChoose.gameObject.SetActive(false);
-        NextLevelButton.gameObject.SetActive(false);
-        LevelGm.gameObject.SetActive(true);
+        CantChoose.SetActive(false);
+        NextLevelButton.SetActive(false);
+        LevelGm.SetActive(true);
         ClearLevelData();
         LoadLevelLetters();
         SpawnLetters();
-        levelLogic.StartTimer(); 
+        levelLogic.StartTimer(menuManager.Levelindex);
     }
+
     void LoadLevelLetters()
     {
         LevelData level = allLevels.FirstOrDefault(l => l.levelId == currentLevelId);
@@ -97,12 +99,13 @@ public class WordConnector : MonoBehaviour
             Debug.LogWarning($"⚠️ No level found for ID {currentLevelId}, using default letters.");
         }
     }
+
     void LoadValidWords()
     {
         TextAsset wordFile = Resources.Load<TextAsset>("ValidWords");
         if (wordFile != null)
         {
-            string[] lines = wordFile.text.Split(new[] { '\n', '\r' }, System.StringSplitOptions.RemoveEmptyEntries);
+            string[] lines = wordFile.text.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
             foreach (string line in lines)
             {
                 string w = line.Trim().ToUpper();
@@ -119,26 +122,20 @@ public class WordConnector : MonoBehaviour
 
     void ClearLevelData()
     {
-        levelLogic.StartTimer();
         levelLogic.elapsed = 0;
         foreach (RectTransform spawn in spawnPoints)
-        {
             for (int i = spawn.childCount - 1; i >= 0; i--)
-            {
                 Destroy(spawn.GetChild(i).gameObject);
-            }
-        }
+
         foundWords.Clear();
 
         if (foundWordsContent != null)
-        {
             for (int i = foundWordsContent.childCount - 1; i >= 0; i--)
-            {
                 Destroy(foundWordsContent.GetChild(i).gameObject);
-            }
-        }
+
         currentWord = "";
         selectedLetters.Clear();
+        currentDragLetters.Clear();
 
         if (foundWordsText != null)
             foundWordsText.text = "";
@@ -149,7 +146,6 @@ public class WordConnector : MonoBehaviour
             levelLogic.wordsCountText.text = "0";
         }
     }
-
 
     void SpawnLetters()
     {
@@ -190,7 +186,6 @@ public class WordConnector : MonoBehaviour
         }
     }
 
-
     void Update()
     {
         if (Input.GetMouseButtonDown(0)) StartDrag();
@@ -202,8 +197,10 @@ public class WordConnector : MonoBehaviour
     {
         selectedLetters.Clear();
         currentWord = "";
-        foreach (var seg in lineSegments) Destroy(seg);
+        foreach (var seg in lineSegments)
+            Destroy(seg);
         lineSegments.Clear();
+        lastHitLetter = null;
     }
 
     RectTransform lastHitLetter;
@@ -218,17 +215,35 @@ public class WordConnector : MonoBehaviour
             lastHitLetter = hitLetter;
             selectedLetters.Add(hitLetter);
 
-            Text legacyText = hitLetter.GetComponentInChildren<Text>();
-            string letterStr = legacyText != null ? legacyText.text : "";
+            LetterTile tile = hitLetter.GetComponent<LetterTile>();
+            string letterStr = tile != null ? tile.letter : "";
 
             currentWord += letterStr;
 
-            if (selectedLetters.Count > 1)
-                CreateLine(
-    selectedLetters[selectedLetters.Count - 2],
-    hitLetter
-);
+            if (foundWordPrefabLetter != null)
+            {
+                GameObject letterClone = Instantiate(foundWordPrefabLetter, lineParent);
 
+                RectTransform cloneRect = letterClone.GetComponent<RectTransform>();
+                RectTransform hitRect = hitLetter.GetComponent<RectTransform>();
+
+                cloneRect.position = hitRect.position; 
+                cloneRect.localScale = Vector3.zero;
+
+                Text letterText = letterClone.GetComponent<Text>();
+                if (letterText != null)
+                {
+                    letterText.text = letterStr;
+                    letterText.color = Color.black;
+                }
+
+                StartCoroutine(DropLetter(cloneRect, 120f, 0.25f));
+
+                currentDragLetters.Add(letterClone);
+            }
+
+            if (selectedLetters.Count > 1)
+                CreateLine(selectedLetters[selectedLetters.Count - 2], hitLetter);
         }
 
         if (selectedLetters.Count > 0)
@@ -240,19 +255,13 @@ public class WordConnector : MonoBehaviour
             }
 
             GameObject tempLine = Instantiate(linePrefab, lineParent);
-            LineBetween(
-    tempLine.GetComponent<RectTransform>(),
-    selectedLetters[selectedLetters.Count - 1],
-    mousePos
-);
-
+            LineBetween(tempLine.GetComponent<RectTransform>(), selectedLetters[selectedLetters.Count - 1], mousePos);
             lineSegments.Add(tempLine);
         }
 
         if (hitLetter == null)
             lastHitLetter = null;
     }
-
 
     void EndDrag()
     {
@@ -269,25 +278,93 @@ public class WordConnector : MonoBehaviour
                 totalScore += points;
                 UpdateScoreUI();
 
-                UpdateFoundWordsUI(currentWord, points);
-                if (wordAnimator != null) wordAnimator.PlayWord(currentWord);
+                if (foundWordsContent != null && foundWordPrefab != null)
+                {
+                    GameObject entry = Instantiate(foundWordPrefab, foundWordsContent);
+
+                    Text numberText = entry.transform.Find("NumberText")?.GetComponent<Text>();
+                    if (numberText != null)
+                        numberText.text = foundWords.Count + ".";
+
+                    Transform lettersContainer = entry.transform.Find("LettersContainer");
+
+                    if (lettersContainer != null)
+                    {
+                        for (int i = 0; i < currentDragLetters.Count && i < lettersContainer.childCount; i++)
+                        {
+                            GameObject letterObj = currentDragLetters[i];
+                            Transform targetSlot = lettersContainer.GetChild(i);
+
+                            StartCoroutine(MoveLetterToSlot(letterObj.transform, targetSlot));
+                        }
+
+                    }
+
+                    currentDragLetters.Clear();
+
+                    Text pointsText = entry.transform.Find("PointsText")?.GetComponent<Text>();
+                    if (pointsText != null)
+                        pointsText.text = points.ToString();
+
+                    if (levelLogic != null && levelLogic.wordsFound + 1 == levelLogic.targetWordCount)
+                    {
+                        Text bonusText = entry.transform.Find("BonusText")?.GetComponent<Text>();
+                        if (bonusText != null)
+                            bonusText.text = levelLogic.BonusInt.ToString();
+
+                        Bonus.text = levelLogic.BonusInt.ToString();
+                        NextLevelButton.SetActive(true);
+                        CantChoose.SetActive(true);
+                        StartCoroutine(GoToLevels());
+                    }
+                }
+
                 Debug.Log($"✅ Found valid word: {currentWord} (+{points})");
-            }
-            else
-            {
-                Debug.Log($"⚠️ Word '{currentWord}' already found!");
+                levelLogic.wordsFound++;
+                levelLogic.wordsCountText.text =$"{levelLogic.wordsFound} / {levelLogic.targetWordCount}";
             }
         }
         else
         {
             Debug.Log($"❌ Invalid word: {currentWord}");
+            foreach (var letterObj in currentDragLetters)
+                Destroy(letterObj);
+            currentDragLetters.Clear();
         }
 
         selectedLetters.Clear();
         currentWord = "";
-        foreach (var seg in lineSegments) Destroy(seg);
+        foreach (var seg in lineSegments)
+            Destroy(seg);
         lineSegments.Clear();
     }
+
+    IEnumerator MoveLetterToSlot(Transform letter, Transform targetSlot)
+    {
+        RectTransform letterRect = letter as RectTransform;
+
+        letterRect.SetParent(targetSlot, false);
+
+        Vector3 startPos = letterRect.localPosition;
+        Vector3 endPos = Vector3.zero;
+
+        float duration = 0.75f;
+        float time = 0f;
+
+        while (time < duration)
+        {
+            letterRect.localPosition = Vector3.Lerp(startPos, endPos, time / duration);
+            letterRect.localScale = Vector3.Lerp(letterRect.localScale, Vector3.one, time / duration);
+            time += Time.deltaTime;
+            yield return null;
+        }
+
+        letterRect.localPosition = Vector3.zero;
+        letterRect.localScale = Vector3.one;
+    }
+
+
+
 
     private int CalculateWordScore(string word)
     {
@@ -300,146 +377,67 @@ public class WordConnector : MonoBehaviour
         return total;
     }
 
-    void UpdateFoundWordsUI(string newWord, int points)
+    IEnumerator DropLetter(Transform letter, float dropHeight = 100f, float duration = 0.3f)
     {
-        if (foundWordsText != null)
-            foundWordsText.text = newWord.ToUpper(); // show only the last found word
+        RectTransform rect = letter as RectTransform;
 
-        if (foundWordsContent == null || foundWordPrefab == null)
-            return;
+        Vector3 endPos = rect.localPosition;
+        Vector3 startPos = endPos + new Vector3(0, dropHeight, 0);
 
-        if (levelLogic.wordsFound == levelLogic.targetWordCount)
+        rect.localPosition = startPos;
+        rect.localScale = Vector3.zero;
+
+        float time = 0f;
+        while (time < duration)
         {
-            levelLogic.FinishLevel();
-            int bonus = levelLogic.BonusInt;
+            rect.localPosition = Vector3.Lerp(startPos, endPos, time / duration);
+            rect.localScale = Vector3.Lerp(Vector3.zero, Vector3.one, time / duration);
+            time += Time.deltaTime;
+            yield return null;
         }
 
-
-
-        GameObject entry = Instantiate(foundWordPrefab, foundWordsContent);
-        Text[] texts = entry.GetComponentsInChildren<Text>();
-
-        int index = foundWords.Count; // total count after adding
-
-        if (texts.Length >= 4)
-        {
-            texts[0].text = index.ToString() + ".";      // number
-            texts[1].text = newWord.ToUpper();           // word
-            texts[2].text = points.ToString();           // points
-            if (levelLogic.wordsFound == levelLogic.targetWordCount)
-            {
-                int bonus = levelLogic.BonusInt;
-                texts[3].text = bonus.ToString();
-                NextLevelButton.gameObject.SetActive(true);
-                CantChoose.gameObject.SetActive(true);
-                //Time.timeScale = 0;
-                StartCoroutine(GoToLevels());
-            }
-            else
-            {
-                texts[3].text = "0";
-            }
-
-
-        }
-        else if (texts.Length == 2)
-        {
-            texts[0].text = index.ToString() + ".";
-            texts[1].text = newWord.ToUpper() + " — " + points;
-        }
-        else if (texts.Length == 1)
-        {
-            texts[0].text = index.ToString() + ". " + newWord.ToUpper() + " — " + points;
-        }
-
-        // update level logic
-        if (levelLogic != null)
-        {
-            levelLogic.wordsFound = foundWords.Count;
-            if (levelLogic.wordsCountText != null)
-                levelLogic.wordsCountText.text = levelLogic.wordsFound.ToString();
-        }
-    }
-
-    IEnumerator GoToLevels()
-    {
-        yield return new WaitForSecondsRealtime(2.5f);
-
-        int finishedLevel = currentLevelId;
-        int previousBest = bonusManager.GetBonusForLevel(currentLevelId);
-        bool sendBonus = false;
-
-        // First-time highest level completion
-        if (finishedLevel == menuManager.Levelindex)
-        {
-            menuManager.Levelindex++;
-            menuManager.SetLevelIndex();
-            sendBonus = true;
-            Debug.Log("Unlocked next level!");
-        }
-        else
-        {
-            if (levelLogic.BonusInt > previousBest)
-            {
-                sendBonus = true;
-                Debug.Log($"Replayed level → new bonus {levelLogic.BonusInt} is better than previous {previousBest}, sending bonus.");
-            }
-            else
-            {
-                sendBonus = false;
-                Debug.Log($"Replayed level → new bonus {levelLogic.BonusInt} is not better than previous {previousBest}, skipping send.");
-            }
-        }
-
-        if (sendBonus)
-            if (sendBonus)
-                levelLogic.SendBonusToPlayFab(levelLogic.BonusInt, currentLevelId);
-
-
-        menuManager.FetchLevels();
-        Time.timeScale = 1;
-        StartCoroutine(FetchData());
-        menuManager.Panels[6].gameObject.SetActive(false);
+        rect.localPosition = endPos;
+        rect.localScale = Vector3.one;
     }
 
 
-
-    IEnumerator FetchData()
+    IEnumerator MoveLetterToParent(Transform letter, Transform target)
     {
-        yield return new WaitForSecondsRealtime(2.5f);
-        bonusManager.LoadBonusFromPlayFab();
-        Debug.Log("Done");
-    }
+        Vector3 startPos = letter.position;
+        Vector3 endPos = target.position;
+        float duration = 0.5f;
+        float time = 0f;
 
+        while (time < duration)
+        {
+            letter.position = Vector3.Lerp(startPos, endPos, time / duration);
+            letter.localScale = Vector3.Lerp(Vector3.one, Vector3.one, time / duration);
+            time += Time.deltaTime;
+            yield return null;
+        }
 
-    private void UpdateScoreUI()
-    {
-        if (scoreText != null)
-            scoreText.text = "Score: " + totalScore.ToString();
+        letter.SetParent(target, worldPositionStays: false);
+        letter.localPosition = Vector3.zero;
+        letter.localScale = Vector3.one;
     }
 
     RectTransform GetLetterUnderMouse(Vector2 mousePos)
     {
         foreach (var spawn in spawnPoints)
         {
-            foreach (Transform letter in spawn) // loop through actual letters inside spawn
+            foreach (Transform letter in spawn)
             {
                 if (!letter.gameObject.activeInHierarchy) continue;
 
                 RectTransform rect = letter.GetComponent<RectTransform>();
                 if (rect == null) continue;
 
-                // Use RectangleContainsScreenPoint (works well for ScreenSpace-Overlay)
                 if (RectTransformUtility.RectangleContainsScreenPoint(rect, mousePos, null))
-                {
-                    return rect; // return this specific letter instance
-                }
+                    return rect;
             }
         }
         return null;
     }
-
-
 
     void CreateLine(RectTransform from, RectTransform to)
     {
@@ -452,45 +450,77 @@ public class WordConnector : MonoBehaviour
 
     Vector2 ToLocalPosFromWorld(Vector3 worldPos)
     {
-        RectTransformUtility.ScreenPointToLocalPointInRectangle(
-            lineParent,
-            RectTransformUtility.WorldToScreenPoint(null, worldPos),
-            null,
-            out Vector2 localPos
-        );
+        RectTransformUtility.ScreenPointToLocalPointInRectangle(lineParent,
+            RectTransformUtility.WorldToScreenPoint(null, worldPos), null, out Vector2 localPos);
         return localPos;
     }
 
     Vector2 ToLocalPosFromScreen(Vector2 screenPos)
     {
-        RectTransformUtility.ScreenPointToLocalPointInRectangle(
-            lineParent,
-            screenPos,
-            null,
-            out Vector2 localPos
-        );
+        RectTransformUtility.ScreenPointToLocalPointInRectangle(lineParent, screenPos, null, out Vector2 localPos);
         return localPos;
     }
 
     void LineBetween(RectTransform line, RectTransform from, Vector2 toScreenPos)
     {
-        // Convert both endpoints into lineParent local coordinates (anchored space)
         Vector2 startLocal = ToLocalPosFromWorld(from.position);
         Vector2 endLocal = ToLocalPosFromScreen(toScreenPos);
-
         Vector2 dir = endLocal - startLocal;
         float length = dir.magnitude;
 
-        // Ensure pivot is at left so anchoredPosition is the start point
         line.pivot = new Vector2(0f, 0.5f);
-
-        // Set line size & position
         line.sizeDelta = new Vector2(length, Mathf.Max(1f, line.sizeDelta.y));
         line.anchoredPosition = startLocal;
 
-        // Set rotation
         float angle = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg;
         line.localRotation = Quaternion.Euler(0, 0, angle);
     }
 
+    void UpdateScoreUI()
+    {
+        if (scoreText != null)
+            scoreText.text = "Score: " + totalScore.ToString();
+    }
+
+    IEnumerator GoToLevels()
+    {
+        yield return new WaitForSecondsRealtime(2.5f);
+
+        int finishedLevel = currentLevelId;
+        int previousBest = bonusManager.GetBonusForLevel(currentLevelId);
+        bool sendBonus = false;
+
+        if (finishedLevel == menuManager.Levelindex)
+        {
+            menuManager.Levelindex++;
+            menuManager.SetLevelIndex();
+            sendBonus = true;
+            Debug.Log("Unlocked next level!");
+        }
+        else if (levelLogic.BonusInt > previousBest)
+        {
+            sendBonus = true;
+            Debug.Log($"Replayed level → new bonus {levelLogic.BonusInt} is better than previous {previousBest}, sending bonus.");
+        }
+        else
+        {
+            sendBonus = false;
+            Debug.Log($"Replayed level → new bonus {levelLogic.BonusInt} is not better than previous {previousBest}, skipping send.");
+        }
+
+        if (sendBonus)
+            levelLogic.SendBonusToPlayFab(levelLogic.BonusInt, currentLevelId);
+
+        menuManager.FetchLevels();
+        Time.timeScale = 1;
+        StartCoroutine(FetchData());
+        menuManager.Panels[6].gameObject.SetActive(false);
+    }
+
+    IEnumerator FetchData()
+    {
+        yield return new WaitForSecondsRealtime(2.5f);
+        bonusManager.LoadBonusFromPlayFab();
+        Debug.Log("Done");
+    }
 }

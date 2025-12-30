@@ -24,7 +24,6 @@ public class PlayerManager : MonoBehaviour
         }
         else
         {
-            // Check PlayFab
             PlayFabClientAPI.GetAccountInfo(new GetAccountInfoRequest(), result =>
             {
                 if (!string.IsNullOrEmpty(result.AccountInfo.TitleInfo.DisplayName))
@@ -38,7 +37,6 @@ public class PlayerManager : MonoBehaviour
                 }
                 else
                 {
-                    // Show input panel if no name
                     usernamePanel.SetActive(true);
                 }
             }, error =>

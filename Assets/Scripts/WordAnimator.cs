@@ -4,10 +4,10 @@ using UnityEngine.UI;
 
 public class WordAnimator : MonoBehaviour
 {
-    public RectTransform letterContainer;   // where letters are spawned
-    public GameObject letterPrefab;         // Text prefab for a single letter
-    public float dropDelay = 0.05f;         // delay between letters
-    public float dropDistance = 50f;        // start above
+    public RectTransform letterContainer;  
+    public GameObject letterPrefab;     
+    public float dropDelay = 0.05f;   
+    public float dropDistance = 50f;    
 
     public void PlayWord(string word)
     {
@@ -29,7 +29,7 @@ public class WordAnimator : MonoBehaviour
     else
         spacing = 80f;
 
-    float startX = -((word.Length - 1) * spacing) / 2f; // center word in container
+    float startX = -((word.Length - 1) * spacing) / 2f;
 
     for (int i = 0; i < word.Length; i++)
     {
@@ -42,11 +42,9 @@ public class WordAnimator : MonoBehaviour
 
         RectTransform rect = letterObj.GetComponent<RectTransform>();
 
-        // Set horizontal position
         Vector2 finalPos = new Vector2(startX + i * spacing, 0f);
-        rect.anchoredPosition = finalPos + Vector2.up * dropDistance; // start above
+        rect.anchoredPosition = finalPos + Vector2.up * dropDistance; 
 
-        // Drop animation
         float elapsed = 0f;
         float duration = 0.2f;
         while (elapsed < duration)
@@ -60,7 +58,6 @@ public class WordAnimator : MonoBehaviour
         yield return new WaitForSeconds(dropDelay);
     }
 
-    // Re-enable Layout Group if it exists
     if (layout != null) layout.enabled = true;
 }
 

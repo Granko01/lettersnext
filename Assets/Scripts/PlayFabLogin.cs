@@ -14,8 +14,8 @@ public class PlayFabLogin : MonoBehaviour
     void Start()
     {
         LoginToPlayFab();
-        playerManager = FindObjectOfType<PlayerManager>();
-        bonusManager = FindObjectOfType<BonusManager>();
+        playerManager = FindAnyObjectByType<PlayerManager>();
+        bonusManager = FindAnyObjectByType<BonusManager>();
     }
 
     void LoginToPlayFab()
@@ -35,6 +35,7 @@ public class PlayFabLogin : MonoBehaviour
         playFabId = result.PlayFabId;
         bonusManager.LoadBonusFromPlayFab();
         playerManager.CheckUsername();
+        bonusManager.LoadLevelLeaderboard(1);
     }
 
     void OnLoginFailure(PlayFabError error)

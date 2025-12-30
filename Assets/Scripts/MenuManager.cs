@@ -14,8 +14,8 @@ public class MenuManager : MonoBehaviour
     public int Coins;
     public Text[] CoinsText;
     public Text[] EnergyText;
-    public float EnergyRegenHours = 1f; 
-    public Text TimerText; 
+    public float EnergyRegenHours = 1f;
+    public Text TimerText;
     public GameObject[] BuyButton;
     [Header("Level settings")]
     public int Levelindex = 1;
@@ -31,7 +31,7 @@ public class MenuManager : MonoBehaviour
 
     void Start()
     {
-        wordConnector = FindObjectOfType<WordConnector>();
+        wordConnector = FindAnyObjectByType<WordConnector>();
         secondsPerEnergy = EnergyRegenHours * 3600f;
         GetLevelIndex();
         FetchLevels();
@@ -43,11 +43,11 @@ public class MenuManager : MonoBehaviour
     {
         if (tag == "+1energy")
         {
-             BuyButton[0].gameObject.SetActive(true);
+            BuyButton[0].gameObject.SetActive(true);
         }
         if (tag == "+1slot")
         {
-             BuyButton[1].gameObject.SetActive(true);       
+            BuyButton[1].gameObject.SetActive(true);
         }
     }
 
@@ -65,7 +65,6 @@ public class MenuManager : MonoBehaviour
                 UpdateUI();
                 SetEnergy();
 
-                // If still not full, reset timer
                 if (Energies < MaxEnergy)
                 {
                     double leftoverSeconds = secondsPassed % secondsPerEnergy;
@@ -83,44 +82,63 @@ public class MenuManager : MonoBehaviour
     }
 
     public void FetchLevels()
-{
-    for (int i = 0; i < LevelButtons.Length; i++)
     {
-        int level = i + 1;
-
-        LevelButtons[i].interactable = (level <= Levelindex);
-        LevelButtons[i].onClick.RemoveAllListeners();
-
-        if (level < Levelindex)
+        for (int i = 0; i < LevelButtons.Length; i++)
         {
-            LevelButtons[i].onClick.AddListener(() =>
-            {
-                if (Energies > 0)
+            int level = i + 1;
+              GameObject stars = null;
+
+                foreach (Transform child in LevelButtons[i].transform)
                 {
-                    UseEnergy();
+                    if (child.CompareTag("stars"))
+                    {
+                        stars = child.gameObject;
+                        break;
+                    }
+                }
+               
+            LevelButtons[i].interactable = (level <= Levelindex);
+            LevelButtons[i].onClick.RemoveAllListeners();
+
+            if (level < Levelindex)
+            {
+                LevelButtons[i].onClick.AddListener(() =>
+                {
+                    if (Energies > 0)
+                    {
+                        UseEnergy();
+                        wordConnector.StartLevel(level);
+                    }
+                    else
+                    {
+                        Debug.Log("Not enough energy to replay this level!");
+                    }
+                });
+            }
+            else if (level == Levelindex)
+            {
+                LevelButtons[i].onClick.AddListener(() =>
+                {
                     wordConnector.StartLevel(level);
-                }
-                else
+                });
+                if (stars != null)
                 {
-                    Debug.Log("Not enough energy to replay this level!");
+                    stars.SetActive(true);
+                    
                 }
-            });
-        }
-        else if (level == Levelindex)
-        {
-            LevelButtons[i].onClick.AddListener(() =>
+            }
+            else
             {
-                wordConnector.StartLevel(level);
-            });
-        }
-        else
-        {
-            LevelButtons[i].interactable = false;
+                LevelButtons[i].interactable = false;
+                if (stars != null)
+                {
+                    stars.SetActive(false);
+                }
+            }
         }
     }
-}
 
-    
+
     public void GetLevelIndex()
     {
         Levelindex = PlayerPrefs.GetInt(LevelKey, Levelindex);
@@ -228,15 +246,15 @@ public class MenuManager : MonoBehaviour
             case "Howto": Panels[3].SetActive(true); break;
             case "Close": Panels[4].SetActive(true); break;
             case "Shop": Panels[5].SetActive(true); break;
-           
+
         }
-         if (tag == "Home")
+        if (tag == "Home")
+        {
+            for (int i = 0; i < Panels.Length; i++)
             {
-                for (int i = 0; i < Panels.Length; i++)
-                {
-                    Panels[i].gameObject.SetActive(false);
-                }
-                Panels[7].gameObject.SetActive(true);
+                Panels[i].gameObject.SetActive(false);
             }
+            Panels[7].gameObject.SetActive(true);
+        }
     }
 }

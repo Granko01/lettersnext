@@ -4,7 +4,6 @@ using UnityEngine;
 using UnityEngine.UI;
 using PlayFab;
 using PlayFab.ClientModels;
-using System;
 
 public class LevelLogic : MonoBehaviour
 {
@@ -16,9 +15,10 @@ public class LevelLogic : MonoBehaviour
     public Text timerText;
     public Text bonusText;
     public Text wordsCountText;
-    private float startTime;
+
     private bool timerRunning = false;
     private bool levelFinished = false;
+
     public int wordsFound = 0;
     public int BonusInt;
     public float elapsed = 0f;
@@ -26,16 +26,18 @@ public class LevelLogic : MonoBehaviour
     public BonusManager bonusManager;
     public MenuManager menuManager;
 
+    private int currentLevelId;
+
     void Start()
     {
-        bonusManager = FindObjectOfType<BonusManager>();
-        menuManager = FindObjectOfType<MenuManager>();
+        bonusManager = FindAnyObjectByType<BonusManager>();
+        menuManager = FindAnyObjectByType<MenuManager>();
     }
-
 
     void Update()
     {
-        if (!timerRunning) return;
+        if (!timerRunning || levelFinished)
+            return;
 
         elapsed += Time.deltaTime;
 
@@ -47,29 +49,32 @@ public class LevelLogic : MonoBehaviour
 
         if (bonusText != null)
             bonusText.text = $"Bonus: +{BonusInt}";
-
-        if (levelFinished)
-            timerRunning = false;
     }
 
-
-
-    public void StartTimer()
+    public void StartTimer(int levelId)
     {
-        startTime = Time.time;
+        elapsed = 0f;
         timerRunning = true;
         levelFinished = false;
         wordsFound = 0;
+        currentLevelId = levelId;
 
         if (bonusText != null)
             bonusText.text = "";
+
+        if (wordsCountText != null)
+            wordsCountText.text = $"0 / {targetWordCount}";
     }
 
     public void OnWordFound()
     {
-        if (!timerRunning) return;
+        if (!timerRunning || levelFinished)
+            return;
 
         wordsFound++;
+
+        if (wordsCountText != null)
+            wordsCountText.text = $"{wordsFound} / {targetWordCount}";
 
         if (wordsFound >= targetWordCount)
         {
@@ -77,23 +82,29 @@ public class LevelLogic : MonoBehaviour
         }
     }
 
+    public IEnumerator LevelFinished()
+    {
+        yield return new WaitForSecondsRealtime(1f);
+        FinishLevel();
+    }
+
     public void FinishLevel()
     {
         levelFinished = true;
-        float elapsed = Time.time - startTime;
-        float remaining = Mathf.Max(0, maxBonusTime - elapsed);
+        timerRunning = false;
+
+        float finalTime = elapsed;
+
+        float remaining = Mathf.Max(0, maxBonusTime - finalTime);
         BonusInt = Mathf.RoundToInt(remaining);
 
         if (bonusText != null)
             bonusText.text = $"Bonus: +{BonusInt}";
 
-        Debug.Log($"🏁 Level finished in {elapsed:F1}s → Bonus: +{BonusInt}");
+        Debug.Log($"🏁 Level {currentLevelId} finished in {finalTime:F2}s → Bonus: +{BonusInt}");
 
-    }
-    public IEnumerator LevelFinished()
-    {
-        yield return new WaitForSecondsRealtime(3f);
-        FinishLevel();
+        SendBonusToPlayFab(BonusInt, currentLevelId);
+        SendTimeToPlayFab(currentLevelId, finalTime);
     }
 
     public void SendBonusToPlayFab(int bonus, int levelId)
@@ -107,20 +118,68 @@ public class LevelLogic : MonoBehaviour
         int totalBonus = bonusManager.BonusInt + bonus;
 
         var stats = new List<StatisticUpdate>
-    {
-        new StatisticUpdate { StatisticName = $"Bonus_Level_{levelId}", Value = bonus },
-        new StatisticUpdate { StatisticName = "Bonus", Value = totalBonus }
-    };
+        {
+            new StatisticUpdate
+            {
+                StatisticName = $"Bonus_Level_{levelId}",
+                Value = bonus
+            },
+            new StatisticUpdate
+            {
+                StatisticName = "Bonus",
+                Value = totalBonus
+            }
+        };
 
         PlayFabClientAPI.UpdatePlayerStatistics(
             new UpdatePlayerStatisticsRequest { Statistics = stats },
             result =>
             {
-                Debug.Log($"✅ Sent Bonus for Level {levelId}: +{bonus}, Total: {totalBonus}");
+                Debug.Log($"✅ Bonus sent → Level {levelId}: +{bonus}");
                 bonusManager.BonusInt = totalBonus;
             },
-            error => Debug.LogError($"❌ Failed to update bonus: {error.GenerateErrorReport()}")
+            error =>
+            {
+                Debug.LogError($"❌ Failed to send bonus: {error.GenerateErrorReport()}");
+            }
         );
     }
 
+    public void SendTimeToPlayFab(int levelId, float seconds)
+    {
+        var request = new UpdatePlayerStatisticsRequest
+        {
+            Statistics = new List<StatisticUpdate>
+            {
+                new StatisticUpdate
+                {
+                    StatisticName = $"Time_Level_{levelId}",
+                    Value = -(int)(seconds * 1000) 
+                }
+            }
+        };
+
+        PlayFabClientAPI.UpdatePlayerStatistics(
+            request,
+            result =>
+            {
+                Debug.Log($"⏱ Time sent → Level {levelId}: {seconds:F2}s");
+
+                Invoke(nameof(LoadLeaderboardDelayed), 1f);
+            },
+            error =>
+            {
+                Debug.LogError($"❌ Failed to send time: {error.GenerateErrorReport()}");
+            }
+        );
+    }
+
+    private void LoadLeaderboardDelayed()
+    {
+        if (bonusManager != null)
+        {
+            bonusManager.LoadLevelLeaderboard(currentLevelId);
+
+        }
+    }
 }

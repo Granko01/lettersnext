@@ -16,7 +16,6 @@ public class IAPManager : MonoBehaviour
             return;
         }
 
-        // Load saved values
         menuManager.Energies = PlayerPrefs.GetInt(EnergyKey, menuManager.Energies);
         menuManager.MaxEnergy = PlayerPrefs.GetInt(MaxEnergyKey, menuManager.MaxEnergy);
 

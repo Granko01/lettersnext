@@ -19,6 +19,7 @@ public class MenuManager : MonoBehaviour
     public GameObject[] BuyButton;
     [Header("Level settings")]
     public int Levelindex = 1;
+    public static int CurrentLevel;
     public Button[] LevelButtons;
     private const string EnergyKey = "Energy";
     private const string LastEnergyTimeKey = "LastEnergyTime";
@@ -28,10 +29,12 @@ public class MenuManager : MonoBehaviour
     private DateTime lastEnergyTime;
     private float secondsPerEnergy;
     public WordConnector wordConnector;
+    public BonusManager bonusManager;
 
     void Start()
     {
         wordConnector = FindAnyObjectByType<WordConnector>();
+        bonusManager = FindAnyObjectByType<BonusManager>();
         secondsPerEnergy = EnergyRegenHours * 3600f;
         GetLevelIndex();
         FetchLevels();
@@ -106,8 +109,11 @@ public class MenuManager : MonoBehaviour
                 {
                     if (Energies > 0)
                     {
+                        wordConnector.PreGamePanel.gameObject.SetActive(true);
                         UseEnergy();
+                        CurrentLevel = level; 
                         wordConnector.StartLevel(level);
+                        bonusManager.ShowPreGameLeaderboard(level);
                     }
                     else
                     {
@@ -119,7 +125,11 @@ public class MenuManager : MonoBehaviour
             {
                 LevelButtons[i].onClick.AddListener(() =>
                 {
+                    wordConnector.PreGamePanel.gameObject.SetActive(true);
+                     CurrentLevel = level;
                     wordConnector.StartLevel(level);
+                        bonusManager.ShowPreGameLeaderboard(level);
+
                 });
                 if (stars != null)
                 {
@@ -246,7 +256,7 @@ public class MenuManager : MonoBehaviour
             case "Howto": Panels[3].SetActive(true); break;
             case "Close": Panels[4].SetActive(true); break;
             case "Shop": Panels[5].SetActive(true); break;
-
+            case "Settings": Panels[8].SetActive(true); break;
         }
         if (tag == "Home")
         {
@@ -256,5 +266,6 @@ public class MenuManager : MonoBehaviour
             }
             Panels[7].gameObject.SetActive(true);
         }
+        
     }
 }

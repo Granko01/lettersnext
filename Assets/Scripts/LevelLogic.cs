@@ -4,16 +4,18 @@ using UnityEngine;
 using UnityEngine.UI;
 using PlayFab;
 using PlayFab.ClientModels;
+using Unity.VisualScripting;
+using System;
 
 public class LevelLogic : MonoBehaviour
 {
     [Header("Timer Settings")]
     public float maxBonusTime = 100f;
-    public int targetWordCount = 10;
+    public int targetWordCount = 3;
 
     [Header("UI")]
     public Text timerText;
-    public Text bonusText;
+    public int TotalTime;
     public Text wordsCountText;
 
     private bool timerRunning = false;
@@ -25,13 +27,25 @@ public class LevelLogic : MonoBehaviour
 
     public BonusManager bonusManager;
     public MenuManager menuManager;
+    public WordConnector wordConnector;
 
-    private int currentLevelId;
+    public int currentLevelId;
+
+    // 🔥 NEW: real world timer
+    private DateTime startDateTime;
 
     void Start()
     {
         bonusManager = FindAnyObjectByType<BonusManager>();
         menuManager = FindAnyObjectByType<MenuManager>();
+        wordConnector = FindAnyObjectByType<WordConnector>();
+
+        // 🔥 Restore timer if exists (anti-cheat)
+        if (PlayerPrefs.HasKey("LevelStartTime"))
+        {
+            startDateTime = DateTime.Parse(PlayerPrefs.GetString("LevelStartTime"));
+            timerRunning = true;
+        }
     }
 
     void Update()
@@ -39,28 +53,27 @@ public class LevelLogic : MonoBehaviour
         if (!timerRunning || levelFinished)
             return;
 
-        elapsed += Time.deltaTime;
+        // 🔥 Real time calculation
+        elapsed = (float)(DateTime.UtcNow - startDateTime).TotalSeconds;
 
         float remaining = Mathf.Max(0, maxBonusTime - elapsed);
         BonusInt = Mathf.RoundToInt(remaining);
 
         if (timerText != null)
-            timerText.text = $"{Mathf.FloorToInt(elapsed)}s";
-
-        if (bonusText != null)
-            bonusText.text = $"Bonus: +{BonusInt}";
+            timerText.text = Mathf.RoundToInt(elapsed).ToString();
     }
 
     public void StartTimer(int levelId)
     {
+        startDateTime = DateTime.UtcNow;
+        PlayerPrefs.SetString("LevelStartTime", startDateTime.ToString());
+
         elapsed = 0f;
         timerRunning = true;
         levelFinished = false;
         wordsFound = 0;
-        currentLevelId = levelId;
-
-        if (bonusText != null)
-            bonusText.text = "";
+        currentLevelId = MenuManager.CurrentLevel;
+        //currentLevelId = levelId;
 
         if (wordsCountText != null)
             wordsCountText.text = $"0 / {targetWordCount}";
@@ -78,7 +91,7 @@ public class LevelLogic : MonoBehaviour
 
         if (wordsFound >= targetWordCount)
         {
-            StartCoroutine(LevelFinished());
+            FinishLevel();
         }
     }
 
@@ -88,20 +101,23 @@ public class LevelLogic : MonoBehaviour
         FinishLevel();
     }
 
+    public int GetTimersBonus;
+
     public void FinishLevel()
     {
         levelFinished = true;
         timerRunning = false;
 
+        // 🔥 Clear saved time
+        PlayerPrefs.DeleteKey("LevelStartTime");
+
+        if (!int.TryParse(timerText.text, out TotalTime))
+            TotalTime = Mathf.RoundToInt(elapsed);
+
         float finalTime = elapsed;
 
-        float remaining = Mathf.Max(0, maxBonusTime - finalTime);
-        BonusInt = Mathf.RoundToInt(remaining);
-
-        if (bonusText != null)
-            bonusText.text = $"Bonus: +{BonusInt}";
-
-        Debug.Log($"🏁 Level {currentLevelId} finished in {finalTime:F2}s → Bonus: +{BonusInt}");
+        int timerBonus = Mathf.Max(0, Mathf.RoundToInt(maxBonusTime - finalTime));
+        GetTimersBonus = timerBonus;
 
         SendBonusToPlayFab(BonusInt, currentLevelId);
         SendTimeToPlayFab(currentLevelId, finalTime);
@@ -115,7 +131,7 @@ public class LevelLogic : MonoBehaviour
             return;
         }
 
-        int totalBonus = bonusManager.BonusInt + bonus;
+        int totalBonus = bonus;
 
         var stats = new List<StatisticUpdate>
         {
@@ -154,7 +170,7 @@ public class LevelLogic : MonoBehaviour
                 new StatisticUpdate
                 {
                     StatisticName = $"Time_Level_{levelId}",
-                    Value = -(int)(seconds * 1000) 
+                    Value = -(int)(seconds * 1000)
                 }
             }
         };
@@ -179,7 +195,6 @@ public class LevelLogic : MonoBehaviour
         if (bonusManager != null)
         {
             bonusManager.LoadLevelLeaderboard(currentLevelId);
-
         }
     }
 }

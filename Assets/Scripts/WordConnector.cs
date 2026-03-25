@@ -30,15 +30,23 @@ public class WordConnector : MonoBehaviour
 
     [Header("Found Words UI")]
     public Transform foundWordsContent;
+    public Transform LastEntriesPos;
     public GameObject foundWordPrefab;
+    public GameObject LastEntries;
+    public GameObject LastEntriesSecond;
     public GameObject foundWordPrefabLetter;
-
+    public GameObject PreGamePanel;
     [Header("Score")]
     public Text scoreText;
     private int totalScore = 0;
-    public Text Bonus;
+    public int LengthTextCount;
     public GameObject NextLevelButton;
     public GameObject CantChoose;
+    public GameObject DisableCircle;
+    public int totalLetterPoints = 0;
+    public int totalLengthPoints = 0;
+    public int totalTimeBonus = 0;
+
 
     private List<RectTransform> selectedLetters = new List<RectTransform>();
     private List<GameObject> lineSegments = new List<GameObject>();
@@ -48,6 +56,10 @@ public class WordConnector : MonoBehaviour
     public List<LevelData> allLevels = new List<LevelData>();
     public int currentLevelId = 1;
     public GameObject LevelGm;
+
+    bool showingValues = false;
+    Coroutine toggleCoroutine;
+
 
     public LevelLogic levelLogic;
     public WordAnimator wordAnimator;
@@ -63,6 +75,18 @@ public class WordConnector : MonoBehaviour
         { 'U', 2 }, { 'V', 5 }, { 'W', 4 }, { 'X', 8 }, { 'Y', 3 },
         { 'Z', 10 }
     };
+    private readonly Dictionary<int, int> CountWordsValues = new Dictionary<int, int>()
+{
+    { 3, 1 },
+    { 4, 3 },
+    { 5, 5 },
+    { 6, 10 },
+    { 7, 20 },
+    { 8, 30 },
+    { 9, 50 },
+    { 10, 100 }
+};
+
 
     void Start()
     {
@@ -73,7 +97,11 @@ public class WordConnector : MonoBehaviour
         LoadValidWords();
         UpdateScoreUI();
     }
-
+    public void ClosePreGamePanel()
+    {
+        PreGamePanel.gameObject.SetActive(false);
+        levelLogic.StartTimer(menuManager.Levelindex);
+    }
     public void StartLevel(int levelID)
     {
         currentLevelId = levelID;
@@ -83,23 +111,34 @@ public class WordConnector : MonoBehaviour
         ClearLevelData();
         LoadLevelLetters();
         SpawnLetters();
-        levelLogic.StartTimer(menuManager.Levelindex);
     }
 
-    void LoadLevelLetters()
+   void LoadLevelLetters()
+{
+    LevelData level = allLevels.FirstOrDefault(l => l.levelId == currentLevelId);
+    if (level != null)
     {
-        LevelData level = allLevels.FirstOrDefault(l => l.levelId == currentLevelId);
-        if (level != null)
-        {
-            letters = level.letters;
-            Debug.Log($"🔠 Loaded letters for level {currentLevelId}: {letters}");
-        }
-        else
-        {
-            Debug.LogWarning($"⚠️ No level found for ID {currentLevelId}, using default letters.");
-        }
-    }
+        // Split letters by space
+        List<string> letterList = level.letters.Split(' ').ToList();
 
+            // Shuffle (Fisher-Yates)
+            // for (int i = 0; i < letterList.Count; i++)
+            // {
+            //     int randomIndex = UnityEngine.Random.Range(i, letterList.Count);
+            //     string temp = letterList[i];
+            //     letterList[i] = letterList[randomIndex];
+            //     letterList[randomIndex] = temp;
+            // }
+
+            letters = string.Join(" ", letterList);
+
+        Debug.Log($"🔀 Shuffled letters for level {currentLevelId}: {letters}");
+    }
+    else
+    {
+        Debug.LogWarning($"⚠️ No level found for ID {currentLevelId}, using default letters.");
+    }
+}
     void LoadValidWords()
     {
         TextAsset wordFile = Resources.Load<TextAsset>("ValidWords");
@@ -122,6 +161,7 @@ public class WordConnector : MonoBehaviour
 
     void ClearLevelData()
     {
+        PointsInt = 0;
         levelLogic.elapsed = 0;
         foreach (RectTransform spawn in spawnPoints)
             for (int i = spawn.childCount - 1; i >= 0; i--)
@@ -205,131 +245,248 @@ public class WordConnector : MonoBehaviour
 
     RectTransform lastHitLetter;
 
-    void ContinueDrag()
+    private RectTransform previewLine;
+  void ContinueDrag()
+{
+    Vector2 mousePos = Input.mousePosition;
+    RectTransform hitLetter = GetLetterUnderMouse(mousePos);
+
+    // ---------- Letter Selection Logic ----------
+    if (hitLetter != null && hitLetter != lastHitLetter && !selectedLetters.Contains(hitLetter))
     {
-        Vector2 mousePos = Input.mousePosition;
-        RectTransform hitLetter = GetLetterUnderMouse(mousePos);
+        lastHitLetter = hitLetter;
+        selectedLetters.Add(hitLetter);
 
-        if (hitLetter != null && hitLetter != lastHitLetter && !selectedLetters.Contains(hitLetter))
+        LetterTile tile = hitLetter.GetComponent<LetterTile>();
+        string letterStr = tile != null ? tile.letter : "";
+
+        currentWord += letterStr;
+
+        if (foundWordsText != null)
         {
-            lastHitLetter = hitLetter;
-            selectedLetters.Add(hitLetter);
+            foundWordsText.text = currentWord;
+            foundWordsText.transform.localScale = Vector3.one * 1.2f;
+        }
 
-            LetterTile tile = hitLetter.GetComponent<LetterTile>();
-            string letterStr = tile != null ? tile.letter : "";
+        // Spawn dragged letter UI clone
+        if (foundWordPrefabLetter != null)
+        {
+            GameObject letterClone = Instantiate(foundWordPrefabLetter, lineParent);
 
-            currentWord += letterStr;
+            RectTransform cloneRect = letterClone.GetComponent<RectTransform>();
+            RectTransform hitRect = hitLetter.GetComponent<RectTransform>();
 
-            if (foundWordPrefabLetter != null)
+            LetterData data = letterClone.GetComponent<LetterData>();
+            if (data == null)
+                data = letterClone.AddComponent<LetterData>();
+
+            data.SetLetter(letterStr);
+
+            cloneRect.position = hitRect.position;
+            cloneRect.localScale = Vector3.zero;
+
+            Text letterText = letterClone.GetComponent<Text>();
+            if (letterText != null)
             {
-                GameObject letterClone = Instantiate(foundWordPrefabLetter, lineParent);
-
-                RectTransform cloneRect = letterClone.GetComponent<RectTransform>();
-                RectTransform hitRect = hitLetter.GetComponent<RectTransform>();
-
-                cloneRect.position = hitRect.position; 
-                cloneRect.localScale = Vector3.zero;
-
-                Text letterText = letterClone.GetComponent<Text>();
-                if (letterText != null)
-                {
-                    letterText.text = letterStr;
-                    letterText.color = Color.black;
-                }
-
-                StartCoroutine(DropLetter(cloneRect, 120f, 0.25f));
-
-                currentDragLetters.Add(letterClone);
+                letterText.text = letterStr;
+                letterText.color = Color.black;
             }
 
+            StartCoroutine(DropLetter(cloneRect, 120f, 0.25f));
+            currentDragLetters.Add(letterClone);
+
+            // Create line connection between letters
             if (selectedLetters.Count > 1)
-                CreateLine(selectedLetters[selectedLetters.Count - 2], hitLetter);
-        }
-
-        if (selectedLetters.Count > 0)
-        {
-            if (lineSegments.Count > selectedLetters.Count - 1)
             {
-                Destroy(lineSegments[lineSegments.Count - 1]);
-                lineSegments.RemoveAt(lineSegments.Count - 1);
+                CreateLine(
+                    selectedLetters[selectedLetters.Count - 2],
+                    hitLetter
+                );
             }
-
-            GameObject tempLine = Instantiate(linePrefab, lineParent);
-            LineBetween(tempLine.GetComponent<RectTransform>(), selectedLetters[selectedLetters.Count - 1], mousePos);
-            lineSegments.Add(tempLine);
         }
-
-        if (hitLetter == null)
-            lastHitLetter = null;
     }
 
+    // ---------- Live Preview Line (IMPORTANT PART) ----------
+    if (selectedLetters.Count > 0)
+    {
+        if (previewLine == null)
+        {
+            GameObject lineObj = Instantiate(linePrefab, lineParent);
+            previewLine = lineObj.GetComponent<RectTransform>();
+            lineSegments.Add(lineObj);
+        }
+
+        LineBetween(
+            previewLine,
+            selectedLetters[selectedLetters.Count - 1],
+            Input.mousePosition
+        );
+    }
+
+    if (hitLetter == null)
+        lastHitLetter = null;
+}
+    public int PointsInt;
+    public int TotalTimeint;
+    public int LetterPointsint;
+    public int LetterLengthint;
+    public int TimeBonusint;
+    public int GrandTotalInt;
     void EndDrag()
     {
         currentWord = currentWord.ToUpper().Trim();
         Debug.Log("Word formed: " + currentWord);
 
-        if (!string.IsNullOrEmpty(currentWord) && validWords.Contains(currentWord))
+        // Case 1: Valid word AND not already found
+        if (!string.IsNullOrEmpty(currentWord) && validWords.Contains(currentWord) && !foundWords.Contains(currentWord))
         {
-            if (!foundWords.Contains(currentWord))
+            foundWords.Add(currentWord);
+
+            int letterScore = CalculateWordScore(currentWord);
+            int lengthScore = GetLengthScore(currentWord.Length);
+
+            totalLetterPoints += letterScore;
+            totalLengthPoints += lengthScore;
+
+            int points = letterScore;
+            totalScore = points;
+
+            Debug.Log($"Letters Total: {totalLetterPoints}, Length Total: {totalLengthPoints}, Overall Total: {totalScore}");
+
+            UpdateScoreUI();
+
+            if (foundWordsContent != null && foundWordPrefab != null)
             {
-                foundWords.Add(currentWord);
+                GameObject entry = Instantiate(foundWordPrefab, foundWordsContent);
 
-                int points = CalculateWordScore(currentWord);
-                totalScore += points;
-                UpdateScoreUI();
+                Text numberText = entry.transform.Find("NumberText")?.GetComponent<Text>();
+                if (numberText != null)
+                    numberText.text = foundWords.Count + ".";
 
-                if (foundWordsContent != null && foundWordPrefab != null)
+                Transform lettersContainer = entry.transform.Find("LettersContainer");
+
+                if (lettersContainer != null)
                 {
-                    GameObject entry = Instantiate(foundWordPrefab, foundWordsContent);
+                    // Clear any leftover letters in this entry
+                    foreach (Transform placeholder in lettersContainer)
+                        foreach (Transform child in placeholder)
+                            Destroy(child.gameObject);
 
-                    Text numberText = entry.transform.Find("NumberText")?.GetComponent<Text>();
-                    if (numberText != null)
-                        numberText.text = foundWords.Count + ".";
+                    int slotCount = lettersContainer.childCount;
+                    int letterCount = currentDragLetters.Count;
+                    int startIndex = Mathf.Max(0, slotCount - letterCount);
 
-                    Transform lettersContainer = entry.transform.Find("LettersContainer");
-
-                    if (lettersContainer != null)
+                    for (int i = 0; i < letterCount && (startIndex + i) < slotCount; i++)
                     {
-                        for (int i = 0; i < currentDragLetters.Count && i < lettersContainer.childCount; i++)
-                        {
-                            GameObject letterObj = currentDragLetters[i];
-                            Transform targetSlot = lettersContainer.GetChild(i);
+                        GameObject letterObj = currentDragLetters[i];
+                        Transform targetSlot = lettersContainer.GetChild(startIndex + i);
 
-                            StartCoroutine(MoveLetterToSlot(letterObj.transform, targetSlot));
-                        }
-
-                    }
-
-                    currentDragLetters.Clear();
-
-                    Text pointsText = entry.transform.Find("PointsText")?.GetComponent<Text>();
-                    if (pointsText != null)
-                        pointsText.text = points.ToString();
-
-                    if (levelLogic != null && levelLogic.wordsFound + 1 == levelLogic.targetWordCount)
-                    {
-                        Text bonusText = entry.transform.Find("BonusText")?.GetComponent<Text>();
-                        if (bonusText != null)
-                            bonusText.text = levelLogic.BonusInt.ToString();
-
-                        Bonus.text = levelLogic.BonusInt.ToString();
-                        NextLevelButton.SetActive(true);
-                        CantChoose.SetActive(true);
-                        StartCoroutine(GoToLevels());
+                        StartCoroutine(MoveLetterToSlot(letterObj.transform, targetSlot));
                     }
                 }
 
-                Debug.Log($"✅ Found valid word: {currentWord} (+{points})");
-                levelLogic.wordsFound++;
-                levelLogic.wordsCountText.text =$"{levelLogic.wordsFound} / {levelLogic.targetWordCount}";
+                currentDragLetters.Clear();
+
+                Text pointsText = entry.transform.Find("PointsText")?.GetComponentInChildren<Text>();
+                if (pointsText != null)
+                    pointsText.text = points.ToString();
+
+                Text letterText = entry.transform.Find("Letterlength")?.GetComponentInChildren<Text>();
+                if (letterText != null)
+                    letterText.text = lengthScore.ToString();
+
+                // Check if level is complete
+                if (levelLogic != null && levelLogic.wordsFound + 1 == levelLogic.targetWordCount)
+                {
+                    levelLogic.FinishLevel();
+                   
+
+                    GameObject lastEntry = Instantiate(LastEntries, foundWordsContent);
+                    GameObject LastEntrySecond = Instantiate(LastEntriesSecond, LastEntriesPos.position, LastEntriesPos.rotation, LastEntriesPos);
+                    Text[] texts = lastEntry.GetComponentsInChildren<Text>(true);
+                    Text[] texts1 = LastEntrySecond.GetComponentsInChildren<Text>(true);
+
+                    foreach (Text t in texts)
+                    {
+                        switch (t.name)
+                        {
+                            case "LetterLength":
+                                LetterPointsint = totalLetterPoints;
+                                t.text = totalLetterPoints.ToString();
+                                break;
+                            case "WordsLength":
+                                LetterLengthint = totalLengthPoints;
+                                t.text = totalLengthPoints.ToString();
+                                break;
+                        }
+                    }
+                    foreach (Text t1 in texts1)
+                    {
+                        switch (t1.name)
+                        {
+                            case "TotalTime":
+                                TotalTimeint = Mathf.RoundToInt(levelLogic.TotalTime);
+                                t1.text = TotalTimeint.ToString();
+                                break;
+
+                            case "LetterLength":
+                                LetterPointsint = totalLetterPoints;
+                                t1.text = LetterPointsint.ToString();
+                                break;
+
+                            case "TimeBonus":
+                                TimeBonusint = Mathf.RoundToInt(levelLogic.GetTimersBonus);
+                                t1.text = TimeBonusint.ToString();
+                                break;
+
+                            case "WordsLength":
+                                LetterLengthint = totalLengthPoints;
+                                t1.text = totalLengthPoints.ToString();
+                                break;
+
+                            case "GrandTotal":
+                                GrandTotalInt =
+                                    LetterPointsint +
+                                    TimeBonusint +
+                                    LetterLengthint;
+
+                                levelLogic.BonusInt = GrandTotalInt;
+                                t1.text = GrandTotalInt.ToString();
+                                break;
+                        }
+                    }
+
+
+                    NextLevelButton.SetActive(true);
+                    DisableCircle.gameObject.SetActive(false);
+                    StartCoroutine(ShowWinPanel());
+                    StartCoroutine(CovertWordsWait());
+                    StartCoroutine(SendDataDelay());
+                }
             }
+
+            Debug.Log($"✅ Found valid word: {currentWord} (+{points})");
+            levelLogic.wordsFound++;
+            levelLogic.wordsCountText.text = $"{levelLogic.wordsFound} / {levelLogic.targetWordCount}";
         }
         else
         {
-            Debug.Log($"❌ Invalid word: {currentWord}");
+            Debug.Log($"❌ Invalid or duplicate word: {currentWord}");
+
             foreach (var letterObj in currentDragLetters)
                 Destroy(letterObj);
             currentDragLetters.Clear();
+
+            foreach (var seg in lineSegments)
+                Destroy(seg);
+            lineSegments.Clear();
+
+            selectedLetters.Clear();
+            currentWord = "";
+            lastHitLetter = null;
+
+            if (foundWordsText != null)
+                foundWordsText.text = "";
         }
 
         selectedLetters.Clear();
@@ -337,12 +494,178 @@ public class WordConnector : MonoBehaviour
         foreach (var seg in lineSegments)
             Destroy(seg);
         lineSegments.Clear();
+        lastHitLetter = null;
+
+        if (foundWordsText != null)
+            foundWordsText.text = "";
+    }
+
+    public IEnumerator SendDataDelay()
+    {
+        yield return new WaitForSecondsRealtime(2f);
+         SendData();
+         
+    }
+    int GetLengthScore(int length)
+    {
+        if (length >= 10) return CountWordsValues[10];
+        if (CountWordsValues.TryGetValue(length, out int score)) return score;
+        return 0;
+    }
+
+    // IEnumerator AnimateAddWordToText(string word, float letterDelay = 0.1f)
+    // {
+    //     if (foundWordsText == null)
+    //         yield break;
+
+    //     // Clear previous word
+    //     foundWordsText.text = "";
+
+    //     foreach (char c in word)
+    //     {
+    //         foundWordsText.text += c;
+    //         yield return new WaitForSeconds(letterDelay);
+    //     }
+    // }
+
+
+    IEnumerator CovertWordsWait()
+    {
+        yield return new WaitForSecondsRealtime(2f);
+
+        // first flip to values (your existing method)
+        ConvertFoundWordsToPoints();
+
+        // start looping toggle
+        if (toggleCoroutine != null)
+            StopCoroutine(toggleCoroutine);
+
+        toggleCoroutine = StartCoroutine(ToggleLettersAndValues());
+    }
+
+    public void ConvertFoundWordsToPoints()
+    {
+        if (foundWordsContent == null) return;
+
+        foreach (Transform wordEntry in foundWordsContent)
+        {
+            Transform lettersContainer = wordEntry.Find("LettersContainer");
+            if (lettersContainer == null) continue;
+
+            for (int i = 0; i < lettersContainer.childCount; i++)
+            {
+                Transform placeholder = lettersContainer.GetChild(i);
+                if (placeholder.childCount == 0) continue;
+
+                Transform letterTransform = placeholder.GetChild(0);
+                Text letterText = letterTransform.GetComponentInChildren<Text>();
+                LetterData data = letterTransform.GetComponent<LetterData>();
+
+                if (letterText != null && data != null)
+                {
+                    StartCoroutine(AnimateLetterToValue(letterText, data.value));
+                }
+            }
+        }
+    }
+
+    IEnumerator AnimateLetterToValue(Text letterText, int value, float duration = 0.3f)
+    {
+        Vector3 originalScale = letterText.transform.localScale;
+
+        // Shrink the letter to 0 (like a flip)
+        float time = 0f;
+        while (time < duration / 2f)
+        {
+            letterText.transform.localScale = Vector3.Lerp(originalScale, Vector3.zero, time / (duration / 2f));
+            time += Time.deltaTime;
+            yield return null;
+        }
+
+        // Swap text to value
+        letterText.text = value.ToString();
+
+        // Expand back to original size
+        time = 0f;
+        while (time < duration / 2f)
+        {
+            letterText.transform.localScale = Vector3.Lerp(Vector3.zero, originalScale, time / (duration / 2f));
+            time += Time.deltaTime;
+            yield return null;
+        }
+
+        letterText.transform.localScale = originalScale;
+    }
+    IEnumerator AnimateValueToLetter(Text letterText, string letter, float duration = 0.3f)
+    {
+        Vector3 originalScale = letterText.transform.localScale;
+
+        float time = 0f;
+        while (time < duration / 2f)
+        {
+            letterText.transform.localScale =
+                Vector3.Lerp(originalScale, Vector3.zero, time / (duration / 2f));
+            time += Time.deltaTime;
+            yield return null;
+        }
+
+        letterText.text = letter;
+
+        time = 0f;
+        while (time < duration / 2f)
+        {
+            letterText.transform.localScale =
+                Vector3.Lerp(Vector3.zero, originalScale, time / (duration / 2f));
+            time += Time.deltaTime;
+            yield return null;
+        }
+
+        letterText.transform.localScale = originalScale;
+    }
+    IEnumerator ToggleLettersAndValues()
+    {
+        while (true)
+        {
+            yield return new WaitForSecondsRealtime(3f);
+
+            showingValues = !showingValues;
+
+            foreach (Transform wordEntry in foundWordsContent)
+            {
+                Transform lettersContainer = wordEntry.Find("LettersContainer");
+                if (lettersContainer == null) continue;
+
+                for (int i = 0; i < lettersContainer.childCount; i++)
+                {
+                    Transform placeholder = lettersContainer.GetChild(i);
+                    if (placeholder.childCount == 0) continue;
+
+                    Transform letterTransform = placeholder.GetChild(0);
+                    Text letterText = letterTransform.GetComponentInChildren<Text>();
+                    LetterData data = letterTransform.GetComponent<LetterData>();
+
+                    if (letterText == null || data == null) continue;
+
+                    if (showingValues)
+                        StartCoroutine(AnimateLetterToValue(letterText, data.value));
+                    else
+                        StartCoroutine(AnimateValueToLetter(letterText, data.letter));
+                }
+            }
+        }
+    }
+
+
+    IEnumerator ShowWinPanel()
+    {
+        yield return new WaitForSecondsRealtime(1f);
+        CantChoose.gameObject.SetActive(true);
+     
     }
 
     IEnumerator MoveLetterToSlot(Transform letter, Transform targetSlot)
     {
         RectTransform letterRect = letter as RectTransform;
-
         letterRect.SetParent(targetSlot, false);
 
         Vector3 startPos = letterRect.localPosition;
@@ -350,6 +673,11 @@ public class WordConnector : MonoBehaviour
 
         float duration = 0.75f;
         float time = 0f;
+
+        // Make sure the value text is visible
+        Text valueText = letterRect.GetComponentInChildren<Text>(); // or valueDisplay reference
+        if (valueText != null)
+            valueText.enabled = true;
 
         while (time < duration)
         {
@@ -366,13 +694,17 @@ public class WordConnector : MonoBehaviour
 
 
 
+
     private int CalculateWordScore(string word)
     {
         int total = 0;
         foreach (char c in word.ToUpper())
         {
             if (letterValues.TryGetValue(c, out int value))
+            {
                 total += value;
+                Debug.Log($"Letter: {c}, Value: {value}, Running Total: {total}");
+            }
         }
         return total;
     }
@@ -439,15 +771,17 @@ public class WordConnector : MonoBehaviour
         return null;
     }
 
-    void CreateLine(RectTransform from, RectTransform to)
-    {
-        GameObject lineObj = Instantiate(linePrefab, lineParent);
-        lineSegments.Add(lineObj);
+   void CreateLine(RectTransform from, RectTransform to)
+{
+    GameObject lineObj = Instantiate(linePrefab, lineParent);
+    lineSegments.Add(lineObj);
 
-        Vector2 toScreenPos = RectTransformUtility.WorldToScreenPoint(null, to.position);
-        LineBetween(lineObj.GetComponent<RectTransform>(), from, toScreenPos);
-    }
-
+    LineBetween(
+        lineObj.GetComponent<RectTransform>(),
+        from,
+        to
+    );
+}
     Vector2 ToLocalPosFromWorld(Vector3 worldPos)
     {
         RectTransformUtility.ScreenPointToLocalPointInRectangle(lineParent,
@@ -461,30 +795,68 @@ public class WordConnector : MonoBehaviour
         return localPos;
     }
 
-    void LineBetween(RectTransform line, RectTransform from, Vector2 toScreenPos)
-    {
-        Vector2 startLocal = ToLocalPosFromWorld(from.position);
-        Vector2 endLocal = ToLocalPosFromScreen(toScreenPos);
-        Vector2 dir = endLocal - startLocal;
-        float length = dir.magnitude;
+    void LineBetween(RectTransform line, RectTransform from, RectTransform to)
+{
+    Vector2 startLocal;
+    Vector2 endLocal;
 
-        line.pivot = new Vector2(0f, 0.5f);
-        line.sizeDelta = new Vector2(length, Mathf.Max(1f, line.sizeDelta.y));
-        line.anchoredPosition = startLocal;
+    RectTransformUtility.ScreenPointToLocalPointInRectangle(
+        lineParent,
+        RectTransformUtility.WorldToScreenPoint(null, from.position),
+        null,
+        out startLocal
+    );
 
-        float angle = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg;
-        line.localRotation = Quaternion.Euler(0, 0, angle);
-    }
+    RectTransformUtility.ScreenPointToLocalPointInRectangle(
+        lineParent,
+        RectTransformUtility.WorldToScreenPoint(null, to.position),
+        null,
+        out endLocal
+    );
 
+    DrawLine(line, startLocal, endLocal);
+}
+void LineBetween(RectTransform line, RectTransform from, Vector2 mouseScreenPos)
+{
+    Vector2 startLocal;
+    Vector2 endLocal;
+
+    RectTransformUtility.ScreenPointToLocalPointInRectangle(
+        lineParent,
+        RectTransformUtility.WorldToScreenPoint(null, from.position),
+        null,
+        out startLocal
+    );
+
+    RectTransformUtility.ScreenPointToLocalPointInRectangle(
+        lineParent,
+        mouseScreenPos,
+        null,
+        out endLocal
+    );
+
+    DrawLine(line, startLocal, endLocal);
+}
+void DrawLine(RectTransform line, Vector2 startLocal, Vector2 endLocal)
+{
+    Vector2 dir = endLocal - startLocal;
+    float length = dir.magnitude;
+
+    line.pivot = new Vector2(0f, 0.5f);
+    line.sizeDelta = new Vector2(length, line.sizeDelta.y);
+    line.anchoredPosition = startLocal;
+
+    float angle = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg;
+    line.localRotation = Quaternion.Euler(0, 0, angle);
+}
     void UpdateScoreUI()
     {
         if (scoreText != null)
             scoreText.text = "Score: " + totalScore.ToString();
     }
 
-    IEnumerator GoToLevels()
+    public void SendData()
     {
-        yield return new WaitForSecondsRealtime(2.5f);
 
         int finishedLevel = currentLevelId;
         int previousBest = bonusManager.GetBonusForLevel(currentLevelId);
@@ -514,13 +886,68 @@ public class WordConnector : MonoBehaviour
         menuManager.FetchLevels();
         Time.timeScale = 1;
         StartCoroutine(FetchData());
-        menuManager.Panels[6].gameObject.SetActive(false);
+       
+
+    }
+    public void GoToLevels()
+    {
+         menuManager.Panels[6].gameObject.SetActive(false);
+        DisableCircle.gameObject.SetActive(true);
+        TotalTimeint = 0;
+        LetterPointsint = 0;
+        LetterLengthint = 0;
+        TimeBonusint = 0;
+        GrandTotalInt = 0;
+        totalLetterPoints = 0;
+        totalLengthPoints = 0;
+        totalTimeBonus = 0;
+    }
+    public void Retry()
+    {
+
+        int finishedLevel = currentLevelId;
+        int previousBest = bonusManager.GetBonusForLevel(currentLevelId);
+        bool sendBonus = false;
+         TotalTimeint = 0;
+        LetterPointsint = 0;
+        LetterLengthint = 0;
+        TimeBonusint = 0;
+        GrandTotalInt = 0;
+        totalLetterPoints = 0;
+        totalLengthPoints = 0;
+        totalTimeBonus = 0;
+        levelLogic.StartTimer(menuManager.Levelindex);
+
+        if (levelLogic.BonusInt > previousBest)
+        {
+            sendBonus = true;
+            Debug.Log($"Replayed level → new bonus {levelLogic.BonusInt} is better than previous {previousBest}, sending bonus.");
+        }
+        else
+        {
+            sendBonus = false;
+            Debug.Log($"Replayed level → new bonus {levelLogic.BonusInt} is not better than previous {previousBest}, skipping send.");
+        }
+
+        if (sendBonus)
+            levelLogic.SendBonusToPlayFab(levelLogic.BonusInt, currentLevelId);
+
+        menuManager.FetchLevels();
+        Time.timeScale = 1;
+        NextLevelButton.SetActive(false);
+        DisableCircle.gameObject.SetActive(true);
+        
+        ClearLevelData();
+        LoadLevelLetters();
+        SpawnLetters();
+        CantChoose.gameObject.SetActive(false);
     }
 
     IEnumerator FetchData()
     {
         yield return new WaitForSecondsRealtime(2.5f);
         bonusManager.LoadBonusFromPlayFab();
+        bonusManager.ShowEndGameResults(currentLevelId);
         Debug.Log("Done");
     }
 }

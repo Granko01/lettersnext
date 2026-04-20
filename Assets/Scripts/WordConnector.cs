@@ -100,6 +100,7 @@ public class WordConnector : MonoBehaviour
     public void ClosePreGamePanel()
     {
         PreGamePanel.gameObject.SetActive(false);
+        menuManager.UseEnergy();
         levelLogic.StartTimer(menuManager.Levelindex);
     }
     public void StartLevel(int levelID)
@@ -251,62 +252,81 @@ public class WordConnector : MonoBehaviour
     Vector2 mousePos = Input.mousePosition;
     RectTransform hitLetter = GetLetterUnderMouse(mousePos);
 
-    // ---------- Letter Selection Logic ----------
-    if (hitLetter != null && hitLetter != lastHitLetter && !selectedLetters.Contains(hitLetter))
+    if (hitLetter != null)
     {
-        lastHitLetter = hitLetter;
-        selectedLetters.Add(hitLetter);
-
-        LetterTile tile = hitLetter.GetComponent<LetterTile>();
-        string letterStr = tile != null ? tile.letter : "";
-
-        currentWord += letterStr;
-
-        if (foundWordsText != null)
+        // 🟢 UNDO (go back 1 step)
+        if (selectedLetters.Count > 1 && hitLetter == selectedLetters[selectedLetters.Count - 2])
         {
-            foundWordsText.text = currentWord;
-            foundWordsText.transform.localScale = Vector3.one * 1.2f;
+            UndoLastLetter();
+            lastHitLetter = hitLetter;
+            return;
         }
 
-        // Spawn dragged letter UI clone
-        if (foundWordPrefabLetter != null)
+        // 🔴 CLEAR ALL (back to first letter)
+        if (selectedLetters.Count > 1 && hitLetter == selectedLetters[0])
         {
-            GameObject letterClone = Instantiate(foundWordPrefabLetter, lineParent);
+            ClearCurrentSelection();
+            lastHitLetter = hitLetter;
+            return;
+        }
 
-            RectTransform cloneRect = letterClone.GetComponent<RectTransform>();
-            RectTransform hitRect = hitLetter.GetComponent<RectTransform>();
+        // 🟡 NORMAL ADD (your existing logic, slightly wrapped)
+        if (hitLetter != lastHitLetter && !selectedLetters.Contains(hitLetter))
+        {
+            lastHitLetter = hitLetter;
+            selectedLetters.Add(hitLetter);
 
-            LetterData data = letterClone.GetComponent<LetterData>();
-            if (data == null)
-                data = letterClone.AddComponent<LetterData>();
+            LetterTile tile = hitLetter.GetComponent<LetterTile>();
+            string letterStr = tile != null ? tile.letter : "";
 
-            data.SetLetter(letterStr);
+            currentWord += letterStr;
 
-            cloneRect.position = hitRect.position;
-            cloneRect.localScale = Vector3.zero;
-
-            Text letterText = letterClone.GetComponent<Text>();
-            if (letterText != null)
+            if (foundWordsText != null)
             {
-                letterText.text = letterStr;
-                letterText.color = Color.black;
+                foundWordsText.text = currentWord;
+                foundWordsText.transform.localScale = Vector3.one * 1.2f;
             }
 
-            StartCoroutine(DropLetter(cloneRect, 120f, 0.25f));
-            currentDragLetters.Add(letterClone);
-
-            // Create line connection between letters
-            if (selectedLetters.Count > 1)
+            // Spawn dragged letter UI clone
+            if (foundWordPrefabLetter != null)
             {
-                CreateLine(
-                    selectedLetters[selectedLetters.Count - 2],
-                    hitLetter
-                );
+                GameObject letterClone = Instantiate(foundWordPrefabLetter, lineParent);
+
+                RectTransform cloneRect = letterClone.GetComponent<RectTransform>();
+                RectTransform hitRect = hitLetter.GetComponent<RectTransform>();
+
+                LetterData data = letterClone.GetComponent<LetterData>();
+                if (data == null)
+                    data = letterClone.AddComponent<LetterData>();
+
+                data.SetLetter(letterStr);
+
+                cloneRect.position = hitRect.position;
+                cloneRect.localScale = Vector3.zero;
+
+                Text letterText = letterClone.GetComponent<Text>();
+                if (letterText != null)
+                {
+                    letterText.text = letterStr;
+                    letterText.color = Color.black;
+                }
+
+                StartCoroutine(DropLetter(cloneRect, 120f, 0.25f));
+                currentDragLetters.Add(letterClone);
+
+                // Create line
+                if (selectedLetters.Count > 1)
+                {
+                    CreateLine(
+                        selectedLetters[selectedLetters.Count - 2],
+                        hitLetter
+                    );
+                }
             }
         }
     }
 
-    // ---------- Live Preview Line (IMPORTANT PART) ----------
+    // ---------- Live Preview Line ----------
     if (selectedLetters.Count > 0)
     {
         if (previewLine == null)
@@ -325,6 +345,149 @@ public class WordConnector : MonoBehaviour
 
     if (hitLetter == null)
         lastHitLetter = null;
+}
+void UndoLastLetter()
+{
+    if (selectedLetters.Count == 0) return;
+
+    int lastIndex = selectedLetters.Count - 1;
+
+    // Animate letter removal (snap back)
+    if (currentDragLetters.Count > lastIndex)
+    {
+        StartCoroutine(AnimateRemoveLetter(
+            currentDragLetters[lastIndex],
+            selectedLetters[lastIndex]
+        ));
+        currentDragLetters.RemoveAt(lastIndex);
+    }
+
+    // Animate line removal
+    if (lineSegments.Count > 0)
+    {
+        StartCoroutine(FadeOutLine(lineSegments[lineSegments.Count - 1]));
+        lineSegments.RemoveAt(lineSegments.Count - 1);
+    }
+
+    // Remove from data
+    selectedLetters.RemoveAt(lastIndex);
+
+    if (currentWord.Length > 0)
+        currentWord = currentWord.Substring(0, currentWord.Length - 1);
+
+    if (foundWordsText != null)
+        foundWordsText.text = currentWord;
+}
+IEnumerator AnimateRemoveLetter(GameObject letterObj, RectTransform targetTile)
+{
+    RectTransform rect = letterObj.GetComponent<RectTransform>();
+
+    Vector3 startPos = rect.position;
+    Vector3 endPos = targetTile != null ? targetTile.position : startPos + new Vector3(0, 80f, 0);
+
+    float duration = 0.25f;
+    float time = 0f;
+
+    while (time < duration)
+    {
+        float t = Mathf.SmoothStep(0, 1, time / duration);
+
+        rect.position = Vector3.Lerp(startPos, endPos, t);
+        rect.localScale = Vector3.Lerp(Vector3.one, Vector3.zero, t);
+
+        time += Time.deltaTime;
+        yield return null;
+    }
+
+    Destroy(letterObj);
+}
+IEnumerator FadeOutLine(GameObject lineObj)
+{
+    Image img = lineObj.GetComponent<Image>();
+    RectTransform rect = lineObj.GetComponent<RectTransform>();
+
+    float duration = 0.2f;
+    float time = 0f;
+
+    Color startColor = img.color;
+    Vector3 startScale = rect.localScale;
+
+    while (time < duration)
+    {
+        float t = Mathf.SmoothStep(0, 1, time / duration);
+
+        img.color = new Color(startColor.r, startColor.g, startColor.b, 1 - t);
+        rect.localScale = Vector3.Lerp(startScale, Vector3.zero, t);
+
+        time += Time.deltaTime;
+        yield return null;
+    }
+
+    Destroy(lineObj);
+}
+void AddLetter(RectTransform hitLetter)
+{
+    selectedLetters.Add(hitLetter);
+
+    LetterTile tile = hitLetter.GetComponent<LetterTile>();
+    string letterStr = tile != null ? tile.letter : "";
+
+    currentWord += letterStr;
+
+    if (foundWordsText != null)
+    {
+        foundWordsText.text = currentWord;
+        foundWordsText.transform.localScale = Vector3.one * 1.2f;
+    }
+
+    if (foundWordPrefabLetter != null)
+    {
+        GameObject letterClone = Instantiate(foundWordPrefabLetter, lineParent);
+
+        RectTransform cloneRect = letterClone.GetComponent<RectTransform>();
+        RectTransform hitRect = hitLetter.GetComponent<RectTransform>();
+
+        LetterData data = letterClone.GetComponent<LetterData>() ?? letterClone.AddComponent<LetterData>();
+        data.SetLetter(letterStr);
+
+        cloneRect.position = hitRect.position;
+        cloneRect.localScale = Vector3.zero;
+
+        Text letterText = letterClone.GetComponent<Text>();
+        if (letterText != null)
+        {
+            letterText.text = letterStr;
+            letterText.color = Color.black;
+        }
+
+        StartCoroutine(DropLetter(cloneRect, 120f, 0.25f));
+        currentDragLetters.Add(letterClone);
+
+        if (selectedLetters.Count > 1)
+        {
+            CreateLine(
+                selectedLetters[selectedLetters.Count - 2],
+                hitLetter
+            );
+        }
+    }
+}
+void ClearCurrentSelection()
+{
+    foreach (var obj in currentDragLetters)
+        StartCoroutine(AnimateRemoveLetter(obj, null));
+
+    foreach (var line in lineSegments)
+        StartCoroutine(FadeOutLine(line));
+
+    selectedLetters.Clear();
+    currentDragLetters.Clear();
+    lineSegments.Clear();
+
+    currentWord = "";
+
+    if (foundWordsText != null)
+        foundWordsText.text = "";
 }
     public int PointsInt;
     public int TotalTimeint;
@@ -902,10 +1065,12 @@ void DrawLine(RectTransform line, Vector2 startLocal, Vector2 endLocal)
         totalLengthPoints = 0;
         totalTimeBonus = 0;
     }
+    public GameObject NoEnergies;
     public void Retry()
     {
-
-        int finishedLevel = currentLevelId;
+        if (menuManager.Energies > 0)
+        {
+             int finishedLevel = currentLevelId;
         int previousBest = bonusManager.GetBonusForLevel(currentLevelId);
         bool sendBonus = false;
          TotalTimeint = 0;
@@ -940,7 +1105,58 @@ void DrawLine(RectTransform line, Vector2 startLocal, Vector2 endLocal)
         ClearLevelData();
         LoadLevelLetters();
         SpawnLetters();
+        menuManager.UseEnergy();
         CantChoose.gameObject.SetActive(false);
+        }
+        else
+        {
+            Debug.Log("No energies");
+            StartCoroutine(NoEnergiesMeth());
+        }
+    }
+     private bool isShowingNoEnergy = false;
+
+    public IEnumerator NoEnergiesMeth()
+    {
+        if (isShowingNoEnergy)
+            yield break;
+
+        isShowingNoEnergy = true;
+
+        NoEnergies.gameObject.SetActive(true);
+
+        Vector3 startPos = NoEnergies.transform.position;
+        Vector3 endPos = startPos + new Vector3(0, 50f, 0);
+
+        var graphic = NoEnergies.GetComponent<UnityEngine.UI.Graphic>();
+        Color c = graphic.color;
+        c.a = 1f;
+        graphic.color = c;
+
+        float duration = 1f;
+        float elapsed = 0f;
+
+        while (elapsed < duration)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            float t = elapsed / duration;
+
+            NoEnergies.transform.position = Vector3.Lerp(startPos, endPos, t);
+
+            c.a = Mathf.Lerp(1f, 0f, t);
+            graphic.color = c;
+
+            yield return null;
+        }
+
+        // reset
+        NoEnergies.transform.position = startPos;
+        c.a = 1f;
+        graphic.color = c;
+
+        NoEnergies.gameObject.SetActive(false);
+
+        isShowingNoEnergy = false;
     }
 
     IEnumerator FetchData()

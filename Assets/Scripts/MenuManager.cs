@@ -1,5 +1,7 @@
 using System;
+using System.Collections;
 using System.Linq;
+using JetBrains.Annotations;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -21,6 +23,7 @@ public class MenuManager : MonoBehaviour
     public int Levelindex = 1;
     public static int CurrentLevel;
     public Button[] LevelButtons;
+    public GameObject NoEnergy;
     private const string EnergyKey = "Energy";
     private const string LastEnergyTimeKey = "LastEnergyTime";
     private const string CoinsKey = "CoinsKey";
@@ -89,17 +92,17 @@ public class MenuManager : MonoBehaviour
         for (int i = 0; i < LevelButtons.Length; i++)
         {
             int level = i + 1;
-              GameObject stars = null;
+            GameObject stars = null;
 
-                foreach (Transform child in LevelButtons[i].transform)
+            foreach (Transform child in LevelButtons[i].transform)
+            {
+                if (child.CompareTag("stars"))
                 {
-                    if (child.CompareTag("stars"))
-                    {
-                        stars = child.gameObject;
-                        break;
-                    }
+                    stars = child.gameObject;
+                    break;
                 }
-               
+            }
+
             LevelButtons[i].interactable = (level <= Levelindex);
             LevelButtons[i].onClick.RemoveAllListeners();
 
@@ -110,13 +113,15 @@ public class MenuManager : MonoBehaviour
                     if (Energies > 0)
                     {
                         wordConnector.PreGamePanel.gameObject.SetActive(true);
-                        UseEnergy();
-                        CurrentLevel = level; 
+                        CurrentLevel = level;
                         wordConnector.StartLevel(level);
                         bonusManager.ShowPreGameLeaderboard(level);
                     }
                     else
                     {
+                        if (!isShowingNoEnergy)
+                            StartCoroutine(NoEnergies());
+
                         Debug.Log("Not enough energy to replay this level!");
                     }
                 });
@@ -126,15 +131,15 @@ public class MenuManager : MonoBehaviour
                 LevelButtons[i].onClick.AddListener(() =>
                 {
                     wordConnector.PreGamePanel.gameObject.SetActive(true);
-                     CurrentLevel = level;
+                    CurrentLevel = level;
                     wordConnector.StartLevel(level);
-                        bonusManager.ShowPreGameLeaderboard(level);
+                    bonusManager.ShowPreGameLeaderboard(level);
 
                 });
                 if (stars != null)
                 {
                     stars.SetActive(true);
-                    
+
                 }
             }
             else
@@ -148,7 +153,50 @@ public class MenuManager : MonoBehaviour
         }
     }
 
+    private bool isShowingNoEnergy = false;
 
+    public IEnumerator NoEnergies()
+    {
+        if (isShowingNoEnergy)
+            yield break;
+
+        isShowingNoEnergy = true;
+
+        NoEnergy.gameObject.SetActive(true);
+
+        Vector3 startPos = NoEnergy.transform.position;
+        Vector3 endPos = startPos + new Vector3(0, 50f, 0);
+
+        var graphic = NoEnergy.GetComponent<UnityEngine.UI.Graphic>();
+        Color c = graphic.color;
+        c.a = 1f;
+        graphic.color = c;
+
+        float duration = 1f;
+        float elapsed = 0f;
+
+        while (elapsed < duration)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            float t = elapsed / duration;
+
+            NoEnergy.transform.position = Vector3.Lerp(startPos, endPos, t);
+
+            c.a = Mathf.Lerp(1f, 0f, t);
+            graphic.color = c;
+
+            yield return null;
+        }
+
+        // reset
+        NoEnergy.transform.position = startPos;
+        c.a = 1f;
+        graphic.color = c;
+
+        NoEnergy.gameObject.SetActive(false);
+
+        isShowingNoEnergy = false;
+    }
     public void GetLevelIndex()
     {
         Levelindex = PlayerPrefs.GetInt(LevelKey, Levelindex);
@@ -225,11 +273,11 @@ public class MenuManager : MonoBehaviour
     {
         foreach (var t in EnergyText)
         {
-            t.text = Energies.ToString();
+            t.text = "Energy: " + Energies.ToString();
         }
         foreach (var c in CoinsText)
         {
-            c.text = Coins.ToString();
+            c.text = "Coins: " + Coins.ToString();
         }
     }
 
@@ -257,6 +305,7 @@ public class MenuManager : MonoBehaviour
             case "Close": Panels[4].SetActive(true); break;
             case "Shop": Panels[5].SetActive(true); break;
             case "Settings": Panels[8].SetActive(true); break;
+            case "Levels": Panels[9].SetActive(true); break;
         }
         if (tag == "Home")
         {
@@ -266,6 +315,6 @@ public class MenuManager : MonoBehaviour
             }
             Panels[7].gameObject.SetActive(true);
         }
-        
+
     }
 }

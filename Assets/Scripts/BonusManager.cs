@@ -32,6 +32,7 @@ public class BonusManager : MonoBehaviour
     public LeaderboardEntryUI[] preGameLeaderboardUI;
     public Text endGameYourPosition;
 
+
     [Header("Badges")]
     public Text Yourposition;
 
@@ -200,25 +201,93 @@ public class BonusManager : MonoBehaviour
 
     private void FetchLeaderboardRank(string statName, int levelIndex)
     {
-        PlayFabClientAPI.GetLeaderboardAroundPlayer(
-            new GetLeaderboardAroundPlayerRequest
+        // Fetch top 1 for top player info
+        PlayFabClientAPI.GetLeaderboard(
+            new GetLeaderboardRequest
             {
                 StatisticName = statName,
+                StartPosition = 0,
                 MaxResultsCount = 1
             },
-            result =>
+            topResult =>
             {
-                int rank = 999;
-                if (result.Leaderboard != null && result.Leaderboard.Count > 0)
-                    rank = result.Leaderboard[0].Position + 1;
+                string topName = "-";
+                int topScore = 0;
 
-                HighlightLevelUI(levelIndex, rank);
+                if (topResult.Leaderboard != null && topResult.Leaderboard.Count > 0)
+                {
+                    topName = topResult.Leaderboard[0].DisplayName ?? "Player";
+                    topScore = topResult.Leaderboard[0].StatValue;
+                }
+
+                // Now fetch your own rank + score
+                PlayFabClientAPI.GetLeaderboardAroundPlayer(
+                    new GetLeaderboardAroundPlayerRequest
+                    {
+                        StatisticName = statName,
+                        MaxResultsCount = 1
+                    },
+                    aroundResult =>
+                    {
+                        int rank = 999;
+                        int myScore = 0;
+
+                        if (aroundResult.Leaderboard != null && aroundResult.Leaderboard.Count > 0)
+                        {
+                            rank = aroundResult.Leaderboard[0].Position + 1;
+                            myScore = aroundResult.Leaderboard[0].StatValue;
+                        }
+
+                        HighlightLevelUI(levelIndex, rank, myScore, topScore, topName);
+                    },
+                    error => Debug.LogError($"❌ AroundPlayer error ({statName}): {error.GenerateErrorReport()}")
+                );
             },
-            error =>
-            {
-                Debug.LogError($"❌ Rank fetch failed ({statName}): {error.GenerateErrorReport()}");
-            }
+            error => Debug.LogError($"❌ Top fetch error ({statName}): {error.GenerateErrorReport()}")
         );
+    }
+
+    private void HighlightLevelUI(int levelIndex, int rank, int myScore, int topScore, string topName)
+    {
+        int index = levelIndex - 1;
+
+        if (levelCircles == null || index < 0 || index >= levelCircles.Length)
+            return;
+
+        LevelStars levelStar = levelCircles[index];
+        if (levelStar == null)
+        {
+            Debug.LogWarning($"⚠️ LevelStars not assigned for level {levelIndex}");
+            return;
+        }
+
+        // Position
+        if (levelStar.Position != null)
+        {
+            bool isTop3 = rank >= 1 && rank <= 3;
+            levelStar.Position.gameObject.SetActive(isTop3);
+            if (isTop3) levelStar.Position.text = "Your postion: " + rank.ToString();
+            if (levelStar.backgroundImg != null &&
+                 levelStar.rankSprites != null &&
+                levelStar.rankSprites.Length > 0)
+            {
+                int spriteIndex = Mathf.Clamp(rank - 1, 0, levelStar.rankSprites.Length - 1);
+                levelStar.backgroundImg.sprite = levelStar.rankSprites[spriteIndex];
+            }
+        }
+        if (levelStar.LevelIndex != null)
+            levelStar.LevelIndex.text = $"Level : {levelIndex}";
+
+        // Your score
+        if (levelStar.YourScore != null)
+            levelStar.YourScore.text = myScore > 0 ? $"Your score: {myScore} pts" : "-";
+
+        // Top player
+        if (levelStar.TopPlayerScore != null)
+            levelStar.TopPlayerScore.text = topScore > 0 ? $"Top score: {topScore} pts" : "-";
+
+        if (levelStar.TopPlayerName != null)
+            levelStar.TopPlayerName.text = "First place: " + topName;
     }
 
     #endregion
@@ -262,61 +331,61 @@ public class BonusManager : MonoBehaviour
                 Debug.LogError("❌ EndGame Top error: " + error.GenerateErrorReport());
             }
         );
-        
+
     }
-   public void ShowPreGameLeaderboard(int levelNumber)
-{
-    ClearPreGameLeaderboardUI();
+    public void ShowPreGameLeaderboard(int levelNumber)
+    {
+        ClearPreGameLeaderboardUI();
 
-    string statName = $"Bonus_Level_{levelNumber}";
-    List<PlayerLeaderboardEntry> finalEntries = new List<PlayerLeaderboardEntry>();
+        string statName = $"Bonus_Level_{levelNumber}";
+        List<PlayerLeaderboardEntry> finalEntries = new List<PlayerLeaderboardEntry>();
 
-    PlayFabClientAPI.GetLeaderboard(
-        new GetLeaderboardRequest
-        {
-            StatisticName = statName,
-            StartPosition = 0,
-            MaxResultsCount = 3
-        },
-        topResult =>
-        {
-            if (topResult.Leaderboard != null)
-                finalEntries.AddRange(topResult.Leaderboard);
+        PlayFabClientAPI.GetLeaderboard(
+            new GetLeaderboardRequest
+            {
+                StatisticName = statName,
+                StartPosition = 0,
+                MaxResultsCount = 3
+            },
+            topResult =>
+            {
+                if (topResult.Leaderboard != null)
+                    finalEntries.AddRange(topResult.Leaderboard);
 
-            PlayFabClientAPI.GetLeaderboardAroundPlayer(
-                new GetLeaderboardAroundPlayerRequest
-                {
-                    StatisticName = statName,
-                    MaxResultsCount = 3
-                },
-                aroundResult =>
-                {
-                    if (aroundResult.Leaderboard != null)
+                PlayFabClientAPI.GetLeaderboardAroundPlayer(
+                    new GetLeaderboardAroundPlayerRequest
                     {
-                        foreach (var entry in aroundResult.Leaderboard)
+                        StatisticName = statName,
+                        MaxResultsCount = 3
+                    },
+                    aroundResult =>
+                    {
+                        if (aroundResult.Leaderboard != null)
                         {
-                            if (!finalEntries.Exists(e => e.PlayFabId == entry.PlayFabId))
-                                finalEntries.Add(entry);
+                            foreach (var entry in aroundResult.Leaderboard)
+                            {
+                                if (!finalEntries.Exists(e => e.PlayFabId == entry.PlayFabId))
+                                    finalEntries.Add(entry);
+                            }
                         }
+
+                        finalEntries.Sort((a, b) => a.Position.CompareTo(b.Position));
+
+                        // ✅ USE PREGAME UI HERE
+                        UpdatePreGameLeaderboardUI(finalEntries);
+                    },
+                    error =>
+                    {
+                        Debug.LogError("❌ PreGame Around error: " + error.GenerateErrorReport());
                     }
-
-                    finalEntries.Sort((a, b) => a.Position.CompareTo(b.Position));
-
-                    // ✅ USE PREGAME UI HERE
-                    UpdatePreGameLeaderboardUI(finalEntries);
-                },
-                error =>
-                {
-                    Debug.LogError("❌ PreGame Around error: " + error.GenerateErrorReport());
-                }
-            );
-        },
-        error =>
-        {
-            Debug.LogError("❌ PreGame Top error: " + error.GenerateErrorReport());
-        }
-    );
-}
+                );
+            },
+            error =>
+            {
+                Debug.LogError("❌ PreGame Top error: " + error.GenerateErrorReport());
+            }
+        );
+    }
 
     private void BuildEndGameLeaderboard(
         List<PlayerLeaderboardEntry> topThree,
@@ -332,14 +401,14 @@ public class BonusManager : MonoBehaviour
 
         int myRank = -1;
 
-foreach (var entry in aroundPlayer)
-{
-    if (entry.PlayFabId == PlayFabSettings.staticPlayer.PlayFabId)
-    {
-        myRank = entry.Position + 1;
-        break;
-    }
-}
+        foreach (var entry in aroundPlayer)
+        {
+            if (entry.PlayFabId == PlayFabSettings.staticPlayer.PlayFabId)
+            {
+                myRank = entry.Position + 1;
+                break;
+            }
+        }
 
         if (myRank > 3)
         {
@@ -351,18 +420,18 @@ foreach (var entry in aroundPlayer)
         }
 
         finalList.Sort((a, b) => a.Position.CompareTo(b.Position));
-    
+
         UpdateEndGameUI(finalList, myRank);
     }
     private void ClearPreGameLeaderboardUI()
-{
-    foreach (var ui in preGameLeaderboardUI)
     {
-        ui.rankText.text = "";
-        ui.playerNameText.text = "";
-        ui.timeText.text = "";
+        foreach (var ui in preGameLeaderboardUI)
+        {
+            ui.rankText.text = "";
+            ui.playerNameText.text = "";
+            ui.timeText.text = "";
+        }
     }
-}
 
     private void UpdateEndGameUI(
         List<PlayerLeaderboardEntry> entries,
@@ -396,81 +465,49 @@ foreach (var entry in aroundPlayer)
                 endGameLeaderboardUI[i].timeText.text = "";
             }
         }
-        
+
 
         if (endGameYourPosition != null)
             endGameYourPosition.text = "Your Rank: " + myRank;
     }
 
     private void UpdatePreGameLeaderboardUI(List<PlayerLeaderboardEntry> entries)
-{
-    for (int i = 0; i < preGameLeaderboardUI.Length; i++)
     {
-        if (i < entries.Count)
+        for (int i = 0; i < preGameLeaderboardUI.Length; i++)
         {
-            var entry = entries[i];
-
-            preGameLeaderboardUI[i].rankText.text = (entry.Position + 1).ToString();
-
-            if (entry.PlayFabId == PlayFabSettings.staticPlayer.PlayFabId)
+            if (i < entries.Count)
             {
-                preGameLeaderboardUI[i].playerNameText.text =
-                    (entry.DisplayName ?? "Player") + " (YOU)";
-                preGameLeaderboardUI[i].playerNameText.color = Color.black;
+                var entry = entries[i];
+
+                preGameLeaderboardUI[i].rankText.text = (entry.Position + 1).ToString();
+
+                if (entry.PlayFabId == PlayFabSettings.staticPlayer.PlayFabId)
+                {
+                    preGameLeaderboardUI[i].playerNameText.text =
+                        (entry.DisplayName ?? "Player") + " (YOU)";
+                    preGameLeaderboardUI[i].playerNameText.color = Color.black;
+                }
+                else
+                {
+                    preGameLeaderboardUI[i].playerNameText.text =
+                        entry.DisplayName ?? "Player";
+                    preGameLeaderboardUI[i].playerNameText.color = Color.white;
+                }
+
+                preGameLeaderboardUI[i].timeText.text = entry.StatValue + " pts";
             }
             else
             {
-                preGameLeaderboardUI[i].playerNameText.text =
-                    entry.DisplayName ?? "Player";
-                preGameLeaderboardUI[i].playerNameText.color = Color.white;
+                preGameLeaderboardUI[i].rankText.text = "";
+                preGameLeaderboardUI[i].playerNameText.text = "";
+                preGameLeaderboardUI[i].timeText.text = "";
             }
-
-            preGameLeaderboardUI[i].timeText.text = entry.StatValue + " pts";
-        }
-        else
-        {
-            preGameLeaderboardUI[i].rankText.text = "";
-            preGameLeaderboardUI[i].playerNameText.text = "";
-            preGameLeaderboardUI[i].timeText.text = "";
         }
     }
-}
     #endregion
 
     #region BADGES
 
-    private void HighlightLevelUI(int levelIndex, int rank)
-    {
-        int index = levelIndex - 1;
-
-        if (levelCircles == null || index < 0 || index >= levelCircles.Length)
-            return;
-
-        LevelStars levelStar = levelCircles[index];
-        if (levelStar == null || levelStar.badgeImage == null)
-        {
-            Debug.LogWarning($"⚠️ Text not assigned for level {levelIndex}");
-            return;
-        }
-
-        levelStar.badgeImage.gameObject.SetActive(true);
-
-        switch (rank)
-        {
-            case 1:
-                levelStar.badgeImage.text = "1";
-                break;
-            case 2:
-                levelStar.badgeImage.text = "2";
-                break;
-            case 3:
-                levelStar.badgeImage.text = "3";
-                break;
-            default:
-                levelStar.badgeImage.gameObject.SetActive(false);
-                break;
-        }
-    }
 
     #endregion
 

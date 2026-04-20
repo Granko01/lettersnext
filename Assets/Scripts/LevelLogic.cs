@@ -118,9 +118,16 @@ public class LevelLogic : MonoBehaviour
 
         int timerBonus = Mathf.Max(0, Mathf.RoundToInt(maxBonusTime - finalTime));
         GetTimersBonus = timerBonus;
-
-        SendBonusToPlayFab(BonusInt, currentLevelId);
-        SendTimeToPlayFab(currentLevelId, finalTime);
+        int previousBest = bonusManager.GetBonusForLevel(currentLevelId);
+        if (BonusInt > previousBest)
+        {
+             SendBonusToPlayFab(BonusInt, currentLevelId);
+           SendTimeToPlayFab(currentLevelId, finalTime);
+       }
+        else
+        {
+             Debug.Log($"new bonus {BonusInt} is not better than previous {previousBest}, skipping send.");
+        }
     }
 
     public void SendBonusToPlayFab(int bonus, int levelId)

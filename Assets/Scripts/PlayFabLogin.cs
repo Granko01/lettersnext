@@ -7,6 +7,7 @@ public class PlayFabLogin : MonoBehaviour
 {
     BonusManager bonusManager;
     PlayerManager playerManager;
+    MenuManager menuManager;
     public string playFabId;
 
     private string customId;
@@ -15,6 +16,7 @@ public class PlayFabLogin : MonoBehaviour
     {
         playerManager = FindAnyObjectByType<PlayerManager>();
         bonusManager = FindAnyObjectByType<BonusManager>();
+        menuManager = FindAnyObjectByType<MenuManager>();
 
         LoginToPlayFab();
     }
@@ -46,8 +48,11 @@ public class PlayFabLogin : MonoBehaviour
         Debug.Log("✅ Logged in to PlayFab successfully!");
         playFabId = result.PlayFabId;
 
+        menuManager.LoadVIPFromPlayFab(() =>
+        {
+            playerManager.CheckUsername();
+        });
         bonusManager.LoadBonusFromPlayFab();
-        playerManager.CheckUsername();
         bonusManager.LoadLevelLeaderboard(1);
     }
 

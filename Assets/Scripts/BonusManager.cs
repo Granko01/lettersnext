@@ -10,6 +10,7 @@ public class LeaderboardEntryUI
     public Text rankText;
     public Text playerNameText;
     public Text timeText;
+    public Image crownIcon;
 }
 
 public class BonusManager : MonoBehaviour
@@ -170,23 +171,68 @@ public class BonusManager : MonoBehaviour
         );
     }
 
+    private static readonly Color VIPColor = new Color(0.6f, 0f, 1f);
+
+    private void FetchVIPStatuses(List<PlayerLeaderboardEntry> entries, System.Action<HashSet<string>> onDone)
+    {
+        var vipIds = new HashSet<string>();
+        int pending = entries.Count;
+
+        if (pending == 0) { onDone(vipIds); return; }
+
+        foreach (var entry in entries)
+        {
+            string playFabId = entry.PlayFabId;
+            PlayFabClientAPI.GetUserData(
+                new GetUserDataRequest { PlayFabId = playFabId },
+                result =>
+                {
+                    if (result.Data != null && result.Data.ContainsKey("IsVIP") && result.Data["IsVIP"].Value == "1")
+                        vipIds.Add(playFabId);
+                    if (--pending == 0) onDone(vipIds);
+                },
+                error =>
+                {
+                    if (--pending == 0) onDone(vipIds);
+                }
+            );
+        }
+    }
+
+    private string FormatLeaderboardName(PlayerLeaderboardEntry entry, HashSet<string> vipIds, string suffix = "")
+    {
+        return (entry.DisplayName ?? "Player") + suffix;
+    }
+
+    private void ApplyCrown(Image crownIcon, bool isVip)
+    {
+        if (crownIcon != null) crownIcon.gameObject.SetActive(isVip);
+    }
+
     private void UpdateLeaderboardUI(List<PlayerLeaderboardEntry> entries)
     {
-        for (int i = 0; i < leaderboardUI.Length; i++)
+        FetchVIPStatuses(entries, vipIds =>
         {
-            if (i < entries.Count)
+            for (int i = 0; i < leaderboardUI.Length; i++)
             {
-                leaderboardUI[i].rankText.text = (i + 1).ToString();
-                leaderboardUI[i].playerNameText.text = entries[i].DisplayName ?? "Player";
-                leaderboardUI[i].timeText.text = entries[i].StatValue + " pts";
+                if (i < entries.Count)
+                {
+                    bool isVip = vipIds.Contains(entries[i].PlayFabId);
+                    leaderboardUI[i].rankText.text = (i + 1).ToString();
+                    leaderboardUI[i].playerNameText.text = FormatLeaderboardName(entries[i], vipIds);
+                    leaderboardUI[i].playerNameText.color = isVip ? VIPColor : Color.white;
+                    leaderboardUI[i].timeText.text = entries[i].StatValue + " pts";
+                    ApplyCrown(leaderboardUI[i].crownIcon, isVip);
+                }
+                else
+                {
+                    leaderboardUI[i].rankText.text = "";
+                    leaderboardUI[i].playerNameText.text = "";
+                    leaderboardUI[i].timeText.text = "";
+                    ApplyCrown(leaderboardUI[i].crownIcon, false);
+                }
             }
-            else
-            {
-                leaderboardUI[i].rankText.text = "";
-                leaderboardUI[i].playerNameText.text = "";
-                leaderboardUI[i].timeText.text = "";
-            }
-        }
+        });
     }
 
     private void ClearLeaderboardUI()
@@ -201,32 +247,23 @@ public class BonusManager : MonoBehaviour
 
     private void FetchLeaderboardRank(string statName, int levelIndex)
     {
-        // Fetch top 1 for top player info
         PlayFabClientAPI.GetLeaderboard(
-            new GetLeaderboardRequest
-            {
-                StatisticName = statName,
-                StartPosition = 0,
-                MaxResultsCount = 1
-            },
+            new GetLeaderboardRequest { StatisticName = statName, StartPosition = 0, MaxResultsCount = 1 },
             topResult =>
             {
                 string topName = "-";
+                string topPlayFabId = null;
                 int topScore = 0;
 
                 if (topResult.Leaderboard != null && topResult.Leaderboard.Count > 0)
                 {
                     topName = topResult.Leaderboard[0].DisplayName ?? "Player";
                     topScore = topResult.Leaderboard[0].StatValue;
+                    topPlayFabId = topResult.Leaderboard[0].PlayFabId;
                 }
 
-                // Now fetch your own rank + score
                 PlayFabClientAPI.GetLeaderboardAroundPlayer(
-                    new GetLeaderboardAroundPlayerRequest
-                    {
-                        StatisticName = statName,
-                        MaxResultsCount = 1
-                    },
+                    new GetLeaderboardAroundPlayerRequest { StatisticName = statName, MaxResultsCount = 1 },
                     aroundResult =>
                     {
                         int rank = 999;
@@ -238,7 +275,24 @@ public class BonusManager : MonoBehaviour
                             myScore = aroundResult.Leaderboard[0].StatValue;
                         }
 
-                        HighlightLevelUI(levelIndex, rank, myScore, topScore, topName);
+                        if (topPlayFabId != null)
+                        {
+                            PlayFabClientAPI.GetUserData(
+                                new GetUserDataRequest { PlayFabId = topPlayFabId },
+                                dataResult =>
+                                {
+                                    bool topIsVip = dataResult.Data != null &&
+                                                    dataResult.Data.ContainsKey("IsVIP") &&
+                                                    dataResult.Data["IsVIP"].Value == "1";
+                                    HighlightLevelUI(levelIndex, rank, myScore, topScore, topName, topIsVip);
+                                },
+                                _ => HighlightLevelUI(levelIndex, rank, myScore, topScore, topName, false)
+                            );
+                        }
+                        else
+                        {
+                            HighlightLevelUI(levelIndex, rank, myScore, topScore, topName, false);
+                        }
                     },
                     error => Debug.LogError($"❌ AroundPlayer error ({statName}): {error.GenerateErrorReport()}")
                 );
@@ -247,7 +301,7 @@ public class BonusManager : MonoBehaviour
         );
     }
 
-    private void HighlightLevelUI(int levelIndex, int rank, int myScore, int topScore, string topName)
+    private void HighlightLevelUI(int levelIndex, int rank, int myScore, int topScore, string topName, bool topIsVip)
     {
         int index = levelIndex - 1;
 
@@ -261,33 +315,38 @@ public class BonusManager : MonoBehaviour
             return;
         }
 
-        // Position
         if (levelStar.Position != null)
         {
             bool isTop3 = rank >= 1 && rank <= 3;
             levelStar.Position.gameObject.SetActive(isTop3);
             if (isTop3) levelStar.Position.text = "Your postion: " + rank.ToString();
             if (levelStar.backgroundImg != null &&
-                 levelStar.rankSprites != null &&
+                levelStar.rankSprites != null &&
                 levelStar.rankSprites.Length > 0)
             {
                 int spriteIndex = Mathf.Clamp(rank - 1, 0, levelStar.rankSprites.Length - 1);
                 levelStar.backgroundImg.sprite = levelStar.rankSprites[spriteIndex];
             }
         }
+
         if (levelStar.LevelIndex != null)
             levelStar.LevelIndex.text = $"Level : {levelIndex}";
 
-        // Your score
         if (levelStar.YourScore != null)
             levelStar.YourScore.text = myScore > 0 ? $"Your score: {myScore} pts" : "-";
 
-        // Top player
         if (levelStar.TopPlayerScore != null)
             levelStar.TopPlayerScore.text = topScore > 0 ? $"Top score: {topScore} pts" : "-";
 
         if (levelStar.TopPlayerName != null)
-            levelStar.TopPlayerName.text = "First place: " + topName;
+        {
+            string displayName = topIsVip ? $"First place: <color=#9900FF>{topName}</color>" : "First place: " + topName;
+            levelStar.TopPlayerName.text = displayName;
+            levelStar.TopPlayerName.color = Color.black;
+        }
+
+        if (levelStar.topPlayerCrown != null)
+            levelStar.topPlayerCrown.gameObject.SetActive(topIsVip);
     }
 
     #endregion
@@ -433,76 +492,65 @@ public class BonusManager : MonoBehaviour
         }
     }
 
-    private void UpdateEndGameUI(
-        List<PlayerLeaderboardEntry> entries,
-        int myRank)
+    private void UpdateEndGameUI(List<PlayerLeaderboardEntry> entries, int myRank)
     {
-        for (int i = 0; i < endGameLeaderboardUI.Length; i++)
+        FetchVIPStatuses(entries, vipIds =>
         {
-            if (i < entries.Count)
+            for (int i = 0; i < endGameLeaderboardUI.Length; i++)
             {
-                var entry = entries[i];
-
-                endGameLeaderboardUI[i].rankText.text = (entry.Position + 1).ToString();
-
-                if (entry.PlayFabId == PlayFabSettings.staticPlayer.PlayFabId)
+                if (i < entries.Count)
                 {
-                    endGameLeaderboardUI[i].playerNameText.text = (entry.DisplayName ?? "Player") + " (YOU)";
-                    endGameLeaderboardUI[i].playerNameText.color = Color.black;
+                    var entry = entries[i];
+                    bool isMe = entry.PlayFabId == PlayFabSettings.staticPlayer.PlayFabId;
+                    bool isVip = vipIds.Contains(entry.PlayFabId);
+
+                    endGameLeaderboardUI[i].rankText.text = (entry.Position + 1).ToString();
+                    endGameLeaderboardUI[i].playerNameText.text = FormatLeaderboardName(entry, vipIds, isMe ? " (YOU)" : "");
+                    endGameLeaderboardUI[i].playerNameText.color = isVip ? VIPColor : (isMe ? Color.black : Color.white);
+                    endGameLeaderboardUI[i].timeText.text = entry.StatValue + " pts";
+                    ApplyCrown(endGameLeaderboardUI[i].crownIcon, isVip);
                 }
                 else
                 {
-                    endGameLeaderboardUI[i].playerNameText.text = entry.DisplayName ?? "Player";
-                    endGameLeaderboardUI[i].playerNameText.color = Color.white;
+                    endGameLeaderboardUI[i].rankText.text = "";
+                    endGameLeaderboardUI[i].playerNameText.text = "";
+                    endGameLeaderboardUI[i].timeText.text = "";
+                    ApplyCrown(endGameLeaderboardUI[i].crownIcon, false);
                 }
-
-                endGameLeaderboardUI[i].timeText.text = entry.StatValue + " pts";
             }
-            else
-            {
-                endGameLeaderboardUI[i].rankText.text = "";
-                endGameLeaderboardUI[i].playerNameText.text = "";
-                endGameLeaderboardUI[i].timeText.text = "";
-            }
-        }
 
-
-        if (endGameYourPosition != null)
-            endGameYourPosition.text = "Your Rank: " + myRank;
+            if (endGameYourPosition != null)
+                endGameYourPosition.text = "Your Rank: " + myRank;
+        });
     }
 
     private void UpdatePreGameLeaderboardUI(List<PlayerLeaderboardEntry> entries)
     {
-        for (int i = 0; i < preGameLeaderboardUI.Length; i++)
+        FetchVIPStatuses(entries, vipIds =>
         {
-            if (i < entries.Count)
+            for (int i = 0; i < preGameLeaderboardUI.Length; i++)
             {
-                var entry = entries[i];
-
-                preGameLeaderboardUI[i].rankText.text = (entry.Position + 1).ToString();
-
-                if (entry.PlayFabId == PlayFabSettings.staticPlayer.PlayFabId)
+                if (i < entries.Count)
                 {
-                    preGameLeaderboardUI[i].playerNameText.text =
-                        (entry.DisplayName ?? "Player") + " (YOU)";
-                    preGameLeaderboardUI[i].playerNameText.color = Color.black;
+                    var entry = entries[i];
+                    bool isMe = entry.PlayFabId == PlayFabSettings.staticPlayer.PlayFabId;
+                    bool isVip = vipIds.Contains(entry.PlayFabId);
+
+                    preGameLeaderboardUI[i].rankText.text = (entry.Position + 1).ToString();
+                    preGameLeaderboardUI[i].playerNameText.text = FormatLeaderboardName(entry, vipIds, isMe ? " (YOU)" : "");
+                    preGameLeaderboardUI[i].playerNameText.color = isVip ? VIPColor : (isMe ? Color.black : Color.white);
+                    preGameLeaderboardUI[i].timeText.text = entry.StatValue + " pts";
+                    ApplyCrown(preGameLeaderboardUI[i].crownIcon, isVip);
                 }
                 else
                 {
-                    preGameLeaderboardUI[i].playerNameText.text =
-                        entry.DisplayName ?? "Player";
-                    preGameLeaderboardUI[i].playerNameText.color = Color.white;
+                    preGameLeaderboardUI[i].rankText.text = "";
+                    preGameLeaderboardUI[i].playerNameText.text = "";
+                    preGameLeaderboardUI[i].timeText.text = "";
+                    ApplyCrown(preGameLeaderboardUI[i].crownIcon, false);
                 }
-
-                preGameLeaderboardUI[i].timeText.text = entry.StatValue + " pts";
             }
-            else
-            {
-                preGameLeaderboardUI[i].rankText.text = "";
-                preGameLeaderboardUI[i].playerNameText.text = "";
-                preGameLeaderboardUI[i].timeText.text = "";
-            }
-        }
+        });
     }
     #endregion
 

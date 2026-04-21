@@ -7,8 +7,8 @@ public class LevelStars : MonoBehaviour
     public Text YourScore;
     public Text TopPlayerScore;
     public Text TopPlayerName;
-        public Text LevelIndex;
-        public Image backgroundImg;
-public Sprite[] rankSprites;
-
+    public Image topPlayerCrown;
+    public Text LevelIndex;
+    public Image backgroundImg;
+    public Sprite[] rankSprites;
 }

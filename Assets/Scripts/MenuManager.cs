@@ -1,14 +1,20 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Linq;
 using JetBrains.Annotations;
 using UnityEngine;
 using UnityEngine.UI;
+using PlayFab;
+using PlayFab.ClientModels;
 
 public class MenuManager : MonoBehaviour
 {
     [Header("Panels")]
     public GameObject[] Panels;
+
+    [Header("VIP")]
+    public GameObject vipBadgeText;
 
     [Header("Energy Settings")]
     public int Energies;
@@ -28,6 +34,46 @@ public class MenuManager : MonoBehaviour
     private const string LastEnergyTimeKey = "LastEnergyTime";
     private const string CoinsKey = "CoinsKey";
     public const string LevelKey = "LevelKey";
+    private const string VIPKey = "IsVIP";
+
+    public bool IsVIP => PlayerPrefs.GetInt(VIPKey, 0) == 1;
+
+    public void SetVIP(bool value)
+    {
+        PlayerPrefs.SetInt(VIPKey, value ? 1 : 0);
+        PlayerPrefs.Save();
+    }
+
+    public void SaveVIPToPlayFab()
+    {
+        PlayFabClientAPI.UpdateUserData(new UpdateUserDataRequest
+        {
+            Data = new Dictionary<string, string> { { VIPKey, "1" } },
+            Permission = UserDataPermission.Public
+        },
+        result => Debug.Log("✅ VIP saved to PlayFab!"),
+        error => Debug.LogError("❌ Failed to save VIP: " + error.GenerateErrorReport()));
+    }
+
+    public void LoadVIPFromPlayFab(System.Action onDone = null)
+    {
+        PlayFabClientAPI.GetUserData(new GetUserDataRequest(),
+        result =>
+        {
+            if (result.Data != null && result.Data.ContainsKey(VIPKey) && result.Data[VIPKey].Value == "1")
+            {
+                PlayerPrefs.SetInt(VIPKey, 1);
+                PlayerPrefs.Save();
+                Debug.Log("✅ VIP status loaded from PlayFab.");
+            }
+            onDone?.Invoke();
+        },
+        error =>
+        {
+            Debug.LogError("❌ Failed to load VIP: " + error.GenerateErrorReport());
+            onDone?.Invoke();
+        });
+    }
 
     private DateTime lastEnergyTime;
     private float secondsPerEnergy;
@@ -59,6 +105,12 @@ public class MenuManager : MonoBehaviour
 
     void Update()
     {
+        if (IsVIP)
+        {
+            TimerText.text = "Unlimited ♾";
+            return;
+        }
+
         if (Energies < MaxEnergy)
         {
             TimeSpan timePassed = DateTime.Now - lastEnergyTime;
@@ -110,7 +162,7 @@ public class MenuManager : MonoBehaviour
             {
                 LevelButtons[i].onClick.AddListener(() =>
                 {
-                    if (Energies > 0)
+                    if (IsVIP || Energies > 0)
                     {
                         wordConnector.PreGamePanel.gameObject.SetActive(true);
                         CurrentLevel = level;
@@ -209,6 +261,8 @@ public class MenuManager : MonoBehaviour
 
     public void UseEnergy()
     {
+        if (IsVIP) return;
+
         if (Energies > 0)
         {
             Energies--;
@@ -272,13 +326,13 @@ public class MenuManager : MonoBehaviour
     public void UpdateUI()
     {
         foreach (var t in EnergyText)
-        {
-            t.text = "Energy: " + Energies.ToString();
-        }
+            t.text = IsVIP ? "Energy: ∞" : "Energy: " + Energies.ToString();
+
         foreach (var c in CoinsText)
-        {
             c.text = "Coins: " + Coins.ToString();
-        }
+
+        if (vipBadgeText != null)
+            vipBadgeText.SetActive(IsVIP);
     }
 
     private void UpdateTimerUI()

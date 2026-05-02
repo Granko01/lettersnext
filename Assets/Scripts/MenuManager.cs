@@ -22,13 +22,21 @@ public class MenuManager : MonoBehaviour
     public int Coins;
     public Text[] CoinsText;
     public Text[] EnergyText;
+    public Text AfterLevelEnergyText;
     public float EnergyRegenHours = 1f;
     public Text TimerText;
     public GameObject[] BuyButton;
+
+    [Header("Subscription Panels")]
+    public GameObject SubscriptionPanel099;
+    public GameObject SubscriptionPanel9999;
+    public GameObject VIPBenefitsPanel;
+    [Range(0, 100)] public int VIPShowChance = 30;
     [Header("Level settings")]
     public int Levelindex = 1;
     public static int CurrentLevel;
     public Button[] LevelButtons;
+    public ScrollRect levelScrollRect;
     public GameObject NoEnergy;
     private const string EnergyKey = "Energy";
     private const string LastEnergyTimeKey = "LastEnergyTime";
@@ -202,10 +210,58 @@ public class MenuManager : MonoBehaviour
                     stars.SetActive(false);
                 }
             }
+             //StartCoroutine(ScrollToCurrentLevelCoroutine());
         }
     }
 
     private bool isShowingNoEnergy = false;
+
+    private IEnumerator ScrollToCurrentLevelCoroutine()
+    {
+        if (levelScrollRect == null)
+        {
+            Debug.LogError("[Scroll] levelScrollRect is not assigned!");
+            yield break;
+        }
+
+        yield return new WaitForEndOfFrame();
+
+        LayoutRebuilder.ForceRebuildLayoutImmediate(levelScrollRect.content);
+        Canvas.ForceUpdateCanvases();
+
+        int index = Mathf.Clamp(Levelindex - 1, 0, LevelButtons.Length - 1);
+        RectTransform target = LevelButtons[index].GetComponent<RectTransform>();
+        RectTransform content = levelScrollRect.content;
+        RectTransform viewport = levelScrollRect.viewport;
+
+        float contentHeight = content.rect.height;
+        float viewportHeight = viewport.rect.height;
+
+        if (contentHeight <= viewportHeight) yield break;
+
+        // Use world-space position so we don't depend on anchoredPosition being set by layout
+        Vector3 targetWorldPos = target.TransformPoint(target.rect.center);
+        Vector2 targetInViewport = viewport.InverseTransformPoint(targetWorldPos);
+        float viewportCenterY = viewport.rect.center.y;
+
+        float offset = targetInViewport.y - viewportCenterY;
+        float newY = Mathf.Clamp(content.anchoredPosition.y - offset, 0f, contentHeight - viewportHeight);
+
+        Vector2 startPos = content.anchoredPosition;
+        Vector2 endPos = new Vector2(content.anchoredPosition.x, newY);
+        float duration = 0.4f;
+        float elapsed = 0f;
+
+        while (elapsed < duration)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            float t = Mathf.SmoothStep(0f, 1f, elapsed / duration);
+            content.anchoredPosition = Vector2.Lerp(startPos, endPos, t);
+            yield return null;
+        }
+
+        content.anchoredPosition = endPos;
+    }
 
     public IEnumerator NoEnergies()
     {
@@ -345,6 +401,41 @@ public class MenuManager : MonoBehaviour
         TimerText.text = "New energy in: " + string.Format("{0:D2}:{1:D2}:{2:D2}", t.Hours, t.Minutes, t.Seconds);
     }
 
+    public void ShowEnergyAfterLevel()
+    {
+        if (AfterLevelEnergyText != null)
+            AfterLevelEnergyText.text = IsVIP ? "Energy: ∞" : "Energy: " + Energies + " / " + MaxEnergy;
+        UpdateUI();
+    }
+
+    public void CheckSubscriptionsForLevelsPanel()
+    {
+        if (IsVIP) return;
+
+        if (SubscriptionPanel099 != null) SubscriptionPanel099.SetActive(false);
+        if (SubscriptionPanel9999 != null) SubscriptionPanel9999.SetActive(false);
+
+        if (Energies <= 0)
+        {
+            if (SubscriptionPanel099 != null) SubscriptionPanel099.SetActive(true);
+        }
+        else if (UnityEngine.Random.Range(0, 100) < VIPShowChance)
+        {
+            if (SubscriptionPanel9999 != null) SubscriptionPanel9999.SetActive(true);
+        }
+    }
+
+    public void ShowVIPBenefitsPanel()
+    {
+        if (IsVIP || VIPBenefitsPanel == null) return;
+        VIPBenefitsPanel.SetActive(true);
+    }
+
+    public void CloseVIPBenefitsPanel()
+    {
+        if (VIPBenefitsPanel != null) VIPBenefitsPanel.SetActive(false);
+    }
+
     public void OpenPanels(string tag)
     {
         for (int i = 0; i < Panels.Length; i++)
@@ -352,14 +443,21 @@ public class MenuManager : MonoBehaviour
 
         switch (tag)
         {
-            case "Play": Panels[0].SetActive(true); break;
+            case "Play":
+            Panels[0].SetActive(true);
+            if (Levelindex >= 4)
+                StartCoroutine(ScrollToCurrentLevelCoroutine());
+            CheckSubscriptionsForLevelsPanel();
+             break;
             case "Leaderboard": Panels[1].SetActive(true); break;
             case "About": Panels[2].SetActive(true); break;
             case "Howto": Panels[3].SetActive(true); break;
             case "Close": Panels[4].SetActive(true); break;
             case "Shop": Panels[5].SetActive(true); break;
             case "Settings": Panels[8].SetActive(true); break;
-            case "Levels": Panels[9].SetActive(true); break;
+            case "Levels":
+                Panels[9].SetActive(true);
+                break;
         }
         if (tag == "Home")
         {

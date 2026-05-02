@@ -97,12 +97,23 @@ public class WordConnector : MonoBehaviour
         LoadValidWords();
         UpdateScoreUI();
     }
-    public void ClosePreGamePanel()
+  public void ClosePreGamePanel()
+{
+    PreGamePanel.gameObject.SetActive(false);
+
+    // Only use energy if replaying a level
+    if (currentLevelId < menuManager.Levelindex)
     {
-        PreGamePanel.gameObject.SetActive(false);
         menuManager.UseEnergy();
-        levelLogic.StartTimer(menuManager.Levelindex);
+        Debug.Log("Replay → energy used");
     }
+    else
+    {
+        Debug.Log("New level → no energy used");
+    }
+
+    levelLogic.StartTimer(currentLevelId);
+}
     public void StartLevel(int levelID)
     {
         currentLevelId = levelID;
@@ -1047,6 +1058,7 @@ void DrawLine(RectTransform line, Vector2 startLocal, Vector2 endLocal)
             levelLogic.SendBonusToPlayFab(levelLogic.BonusInt, currentLevelId);
 
         menuManager.FetchLevels();
+        menuManager.ShowEnergyAfterLevel();
         Time.timeScale = 1;
         StartCoroutine(FetchData());
        
